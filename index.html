@@ -40,12 +40,17 @@
         <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>
       </button>
     </div>
+    <div id="statoVoce" class="stato-voce" hidden aria-live="polite">
+      <span id="statoVoceTesto"></span>
+      <span class="livello" hidden><span id="livelloVoce"></span></span>
+    </div>
     <div id="anteprima" class="anteprima" hidden>
-      <div class="chips">
+      <div id="antSingolo" class="chips">
         <button id="chipTipo" class="chip" type="button"></button>
         <button id="chipCategoria" class="chip" type="button"></button>
         <button id="chipData" class="chip" type="button"></button>
       </div>
+      <div id="antLista" class="ant-lista" hidden></div>
       <div class="anteprima-riga">
         <div class="anteprima-testo">
           <div id="antImporto" class="ant-importo"></div>
@@ -55,7 +60,7 @@
       </div>
       <p id="antAvviso" class="avviso" hidden></p>
     </div>
-    <p id="suggerimento" class="suggerimento">Scrivi o detta, poi Salva. Data, tipo e categoria si correggono toccandoli.</p>
+    <p id="suggerimento" class="suggerimento">Scrivi o tocca il microfono, poi Salva. Anche più cose insieme: «pizza 12, benzina 50». Data, tipo e categoria si correggono toccandoli.</p>
   </section>
 
   <div id="bannerProva" class="carta banner" hidden>
@@ -95,6 +100,14 @@
     </div>
   </section>
 
+  <section id="sezAutonomia" class="carta sezione" aria-labelledby="titoloAutonomia">
+    <div class="titolo-sez">
+      <h3 id="titoloAutonomia">Mesi di autonomia</h3>
+      <button id="modSaldo" class="tasto-piccolo" type="button" hidden>Correggi saldo</button>
+    </div>
+    <div id="autonomiaCorpo"></div>
+  </section>
+
   <section id="sezCategorie" class="carta sezione" aria-labelledby="titoloCategorie">
     <h3 id="titoloCategorie">Spese per categoria</h3>
     <ol id="barre" class="barre"></ol>
@@ -126,6 +139,7 @@
 
 <script src="edizione.js"></script>
 <script src="analizza.js"></script>
+<script src="voce.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

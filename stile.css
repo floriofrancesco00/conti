@@ -307,3 +307,46 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .passi { margin: 4px 0 0; padding-left: 22px; }
 .passi li { font-size: 15px; color: var(--testo-2); margin-bottom: 8px; }
 .passi b { color: var(--testo); }
+
+/* microfono: stato e livello della voce */
+.tasto-microfono.lavora { background: var(--superficie-2); color: var(--testo-2); }
+.tasto-microfono.lavora svg { animation: gira 1.2s linear infinite; transform-origin: 50% 50%; }
+@keyframes gira { 50% { opacity: 0.35; } }
+.stato-voce { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 14px; color: var(--testo-2); }
+.stato-voce .livello { flex: 1; height: 6px; border-radius: 3px; background: var(--campo); overflow: hidden; }
+.stato-voce .livello > span { display: block; height: 100%; width: 100%; background: var(--critico); transform-origin: left; transform: scaleX(0); transition: transform 80ms linear; }
+
+/* più movimenti in una frase */
+.ant-lista { display: flex; flex-direction: column; gap: 10px; }
+.ant-voce { padding: 10px 12px; border-radius: 14px; background: var(--tessera); }
+.ant-voce-su { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+.ant-voce-desc { font-size: 16px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.ant-voce-importo { font-size: 17px; font-weight: 650; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ant-voce-importo.manca { color: var(--testo-tenue); font-weight: 500; }
+.chips.piccole { margin-top: 6px; gap: 6px; }
+.chips.piccole .chip { min-height: 30px; padding: 4px 10px; font-size: 13px; }
+
+/* mesi di autonomia */
+.aut-mesi { font-size: 32px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.15; }
+.aut-testo { font-size: 14px; color: var(--testo-2); margin-top: 2px; }
+.aut-righe { margin-top: 10px; }
+.aut-riga { display: flex; justify-content: space-between; gap: 8px; font-size: 15px; padding: 6px 0; border-top: 1px solid var(--filo); font-variant-numeric: tabular-nums; }
+.aut-riga.forte { font-weight: 650; }
+
+/* fogli: righe, interruttori, categorie, emoji */
+.tasto-piccolo { min-height: 34px; padding: 0 12px; border-radius: 10px; border: 1px solid var(--bordo); background: var(--superficie-2); font-size: 14px; font-weight: 600; flex-shrink: 0; }
+.tasto-piccolo.pericolo { color: var(--critico); }
+.riassunto { font-weight: 600; color: var(--testo) !important; margin-top: 8px; }
+.elenco-righe { margin-top: 10px; }
+.interruttore { display: flex; align-items: center; gap: 12px; min-height: 48px; font-size: 16px; border-bottom: 1px solid var(--filo); }
+.interruttore input { width: 24px; height: 24px; accent-color: var(--tasto); flex-shrink: 0; }
+.cat-riga { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--filo); }
+.cat-riga.nascosta .cat-nome, .cat-riga.nascosta .cat-icona { opacity: 0.5; }
+.cat-icona { width: 28px; text-align: center; font-size: 18px; flex-shrink: 0; }
+.cat-nome { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.griglia-emoji { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
+.emoji { min-height: 40px; border-radius: 10px; border: 1px solid var(--bordo); background: var(--superficie-2); font-size: 20px; padding: 0; }
+.emoji[aria-pressed="true"] { border-color: var(--accento); box-shadow: inset 0 0 0 1px var(--accento); }
+.segmentato.largo { display: flex; width: 100%; margin-bottom: 4px; }
+.segmentato.largo button { flex: 1; }
+.opzione.tratteggiata { border-style: dashed; justify-content: center; color: var(--testo-2); }

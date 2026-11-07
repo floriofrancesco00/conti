@@ -3,7 +3,7 @@
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
 importScripts('edizione.js');
 const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
-const VERSIONE = '2026.11.07-1938';
+const VERSIONE = '2026.11.07-2046';
 const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
@@ -11,6 +11,7 @@ const FILE = [
   './edizione.js',
   './stile.css',
   './analizza.js',
+  './voce.js',
   './app.js',
   './manifest.webmanifest',
   './icone/icona-180.png',
@@ -45,9 +46,22 @@ self.addEventListener('activate', evento => {
   );
 });
 
+// La libreria della voce (transformers.js e il suo motore WebAssembly) arriva da jsDelivr la prima volta che si usa
+// il microfono: la si tiene in una memoria sua, così poi la voce funziona anche senza rete. Il modello invece lo
+// tiene la libreria stessa nella memoria «transformers-cache».
+const VOCE_CACHE = PREFISSO + 'voce-1';
+const VOCE_HOST = 'cdn.jsdelivr.net';
+
 self.addEventListener('fetch', evento => {
   const richiesta = evento.request;
-  if (richiesta.method !== 'GET' || new URL(richiesta.url).origin !== self.location.origin) return;
+  if (richiesta.method !== 'GET') return;
+  const indirizzo = new URL(richiesta.url);
+  if (indirizzo.hostname === VOCE_HOST && /^\/npm\/(@huggingface\/transformers|onnxruntime-web)@/.test(indirizzo.pathname)) {
+    evento.respondWith(caches.open(VOCE_CACHE).then(cache => cache.match(richiesta).then(trovata => trovata ||
+      fetch(richiesta).then(risposta => { if (risposta.ok) cache.put(richiesta, risposta.clone()); return risposta; }))));
+    return;
+  }
+  if (indirizzo.origin !== self.location.origin) return;
   evento.respondWith(
     caches.match(richiesta, { ignoreSearch: true }).then(trovata => {
       if (trovata) return trovata;

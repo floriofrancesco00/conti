@@ -89,13 +89,42 @@
     return v;
   }
 
+  // Distanza di modifica (Levenshtein) con tetto: dice solo se due parole differiscono di 1-2 lettere.
+  function distanza(a, b, tetto) {
+    if (Math.abs(a.length - b.length) > tetto) return tetto + 1;
+    let prima = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const riga = [i];
+      let minimo = i;
+      for (let j = 1; j <= b.length; j++) {
+        riga[j] = Math.min(prima[j] + 1, riga[j - 1] + 1, prima[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (riga[j] < minimo) minimo = riga[j];
+      }
+      if (minimo > tetto) return tetto + 1;
+      prima = riga;
+    }
+    return prima[b.length];
+  }
+
   // Cerca le parole chiave dentro il testo già normalizzato e spaziato (" a b c ").
-  function trova(testoSpaziato, elenco) {
+  // Con «storte» accetta anche parole lunghe sbagliate di una lettera (due se lunghissime)
+  // e due pezzi attaccati («provi gione»): gli errori tipici della trascrizione a voce.
+  function trova(testoSpaziato, elenco, storte) {
     let migliore = null;
     for (const parola of elenco) {
       for (const v of varianti(normalizza(parola))) {
         if (testoSpaziato.includes(' ' + v + ' ') && (!migliore || v.length > migliore.length)) migliore = v;
       }
+    }
+    if (migliore || !storte) return migliore;
+    const parole = testoSpaziato.split(' ').filter(Boolean);
+    const vera = w => w.length >= 3 && /^[a-z']+$/.test(w) && !VALUTA.has(w);
+    const pezzi = parole.concat(parole.slice(1).map((p, i) => (vera(parole[i]) && vera(p) ? parole[i] + p : null)).filter(Boolean));
+    for (const parola of elenco) {
+      const k = normalizza(parola);
+      if (k.length < 7 || k.includes(' ')) continue;
+      const tetto = k.length >= 10 ? 2 : 1;
+      if (pezzi.some(p => distanza(p, k, tetto) <= tetto) && (!migliore || k.length > migliore.length)) migliore = k;
     }
     return migliore;
   }
@@ -233,7 +262,9 @@
     const candidati = [];
     tok.forEach((t, i) => {
       if (t.usato) return;
-      const num = t.num !== undefined ? { valore: t.num, decimali: false, segno: 1 } : numeroDaToken(t.norm);
+      let num = t.num !== undefined ? { valore: t.num, decimali: false, segno: 1 } : numeroDaToken(t.norm);
+      // «un euro e 20»: «un» vale 1 solo se subito dopo c'è la valuta
+      if (!num && (t.norm === 'un' || t.norm === 'uno') && tok[i + 1] && VALUTA.has(tok[i + 1].norm)) num = { valore: 1, decimali: false, segno: 1 };
       if (!num) return;
       const prima = tok[i - 1], dopo = tok[i + 1];
       const conValuta = !!((dopo && VALUTA.has(dopo.norm)) || (prima && prima.norm === '€'));
@@ -271,14 +302,47 @@
     return { centesimi: Math.round(valore * 100), segno: scelto.num.segno, esplicito: tok[i].orig.trim()[0] === '+' ? 1 : (scelto.num.segno < 0 ? -1 : 0) };
   }
 
+  // ---------------------------------------------------------------- categorie personali
+  // personali = { uscita: [{ nome, icona, base, nascosta }], ... } nell'ordine scelto da Francesco.
+  // «base» è la categoria di partenza da cui prende le parole chiave (null per quelle nuove).
+  // Le categorie di partenza che mancano dall'elenco personale (aggiunte in versioni future) vanno in coda.
+  function elenco(tipo, personali) {
+    const base = CATEGORIE[tipo] || [];
+    const segna = c => Object.assign({}, c, { base: c.nome, nascosta: false, ripiego: c.nome === RIPIEGO[tipo] });
+    const mie = personali && Array.isArray(personali[tipo]) ? personali[tipo] : null;
+    if (!mie) return base.map(segna);
+    const lista = mie.map(p => {
+      const b = base.find(c => c.nome === p.base);
+      const eRipiego = !!b && b.nome === RIPIEGO[tipo];
+      return { nome: p.nome, icona: p.icona || (b ? b.icona : '•'), parole: b ? b.parole : [], base: b ? b.nome : null,
+        nascosta: !!p.nascosta && !eRipiego, ripiego: eRipiego };
+    });
+    for (const c of base) if (!mie.some(p => p.base === c.nome)) lista.push(segna(c));
+    return lista;
+  }
+  function ripiego(tipo, personali) {
+    const c = elenco(tipo, personali).find(x => x.ripiego);
+    return c ? c.nome : RIPIEGO[tipo];
+  }
+
   // ---------------------------------------------------------------- tipo e categoria
-  function categoriaPer(tipo, spaziato) {
-    let migliore = null;
-    for (const c of CATEGORIE[tipo]) {
-      const hit = trova(spaziato, c.parole);
-      if (hit && (!migliore || hit.length > migliore.lunghezza)) migliore = { nome: c.nome, lunghezza: hit.length };
+  function categoriaPer(tipo, spaziato, personali) {
+    const lista = elenco(tipo, personali).filter(c => !c.nascosta);
+    for (const storte of [false, true]) {
+      let migliore = null;
+      for (const c of lista) {
+        const hit = trova(spaziato, c.parole, storte);
+        let peso = hit ? hit.length : 0;
+        // «scherma 60» va in «Scherma», se l'hai creata tu: il nome vale più delle parole di partenza
+        if (!storte && !c.ripiego && (!c.base || c.nome !== c.base)) {
+          const nome = normalizza(c.nome);
+          if (spaziato.includes(' ' + nome + ' ')) peso = Math.max(peso, 100 + nome.length);
+        }
+        if (peso && (!migliore || peso > migliore.peso)) migliore = { nome: c.nome, peso };
+      }
+      if (migliore) return migliore.nome;
     }
-    return migliore ? migliore.nome : null;
+    return null;
   }
 
   function paroleSignificative(descrizione) {
@@ -286,7 +350,7 @@
       .filter(p => p.length >= 3 && !VUOTE.has(p) && !/^\d+$/.test(p));
   }
 
-  function esiste(tipo, nome) { return CATEGORIE[tipo] && CATEGORIE[tipo].some(c => c.nome === nome); }
+  function esiste(tipo, nome, personali) { return elenco(tipo, personali).some(c => c.nome === nome && !c.nascosta); }
 
   /**
    * analizza(testo, { oggi: Date, imparate: {parola: {tipo, categoria}}, tipo, segno })
@@ -310,7 +374,24 @@
     const data = leggiData(tok, oggi, contaNumeriLiberi);
     if (data) { risultato.data = isoDa(data); risultato.certo.data = true; }
 
-    const imp = leggiImporto(tok);
+    let imp = leggiImporto(tok);
+    // «Pizzadodici euro»: la trascrizione a volte incolla il numero alla parola prima. Solo come ultima
+    // risorsa (nessun importo trovato) e solo per numeri lunghi almeno 4 lettere dopo almeno 3 lettere.
+    if (!imp) {
+      for (let i = 0; i < tok.length && !imp; i++) {
+        const t = tok[i];
+        if (t.usato || t.num !== undefined || /\d/.test(t.norm)) continue;
+        for (let k = 3; k <= t.norm.length - 4; k++) {
+          const n = numeroDaParola(t.norm.slice(k));
+          if (n === null || n === 0) continue;
+          const resto = t.orig.slice(0, k);
+          tok.splice(i, 1, { orig: resto, norm: normalizza(resto), usato: false },
+            { orig: t.orig.slice(k), norm: t.norm.slice(k), usato: false, num: n });
+          imp = leggiImporto(tok);
+          break;
+        }
+      }
+    }
     if (imp) { risultato.importo = imp.centesimi; risultato.certo.importo = imp.centesimi > 0; }
 
     const spaziato = ' ' + tok.map(t => t.norm.replace(/[^a-z0-9&']/g, '')).join(' ') + ' ';
@@ -325,7 +406,7 @@
       certo = true;
       if (trova(spaziato, RENDITA)) tipo = 'entrata';
       else { tipo = 'investimento'; if (trova(spaziato, RITIRA)) segno = -1; }
-    } else if (trova(spaziato, ENTRA)) {
+    } else if (trova(spaziato, ENTRA) || trova(spaziato, ['provvigione', 'provvigioni', 'stipendio'], true)) {
       const soloCommissione = !trova(spaziato, ENTRA.filter(p => !p.startsWith('commission')));
       if (soloCommissione && trova(spaziato, BANCA)) { tipo = 'uscita'; }
       else tipo = 'entrata';
@@ -346,14 +427,14 @@
     for (const p of paroleSignificative(descrizione)) {
       const regola = imparate[p];
       if (!regola) continue;
-      if (!certo && esiste(regola.tipo, regola.categoria)) { tipo = regola.tipo; segno = regola.segno || 1; }
-      if (regola.tipo === tipo && esiste(tipo, regola.categoria)) { categoria = regola.categoria; catCerta = true; break; }
+      if (!certo && esiste(regola.tipo, regola.categoria, opz.categorie)) { tipo = regola.tipo; segno = regola.segno || 1; }
+      if (regola.tipo === tipo && esiste(tipo, regola.categoria, opz.categorie)) { categoria = regola.categoria; catCerta = true; break; }
     }
     if (!categoria) {
-      const c = categoriaPer(tipo, spaziato);
+      const c = categoriaPer(tipo, spaziato, opz.categorie);
       if (c) { categoria = c; catCerta = true; }
     }
-    if (!categoria) categoria = RIPIEGO[tipo];
+    if (!categoria) categoria = ripiego(tipo, opz.categorie);
 
     risultato.tipo = tipo;
     risultato.segno = tipo === 'investimento' ? segno : 1;
@@ -364,10 +445,57 @@
     return risultato;
   }
 
-  function icona(tipo, nome) {
-    const c = (CATEGORIE[tipo] || []).find(x => x.nome === nome);
+  function icona(tipo, nome, personali) {
+    const c = elenco(tipo, personali).find(x => x.nome === nome);
     return c ? c.icona : '•';
   }
 
-  globale.Analizza = { analizza, CATEGORIE, RIPIEGO, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
+  // ---------------------------------------------------------------- più movimenti in una frase
+  // «pizza 12, benzina 50, caffè 1,20» → tre movimenti. Si divide su a capo, «;», «, » e «. »
+  // (mai dentro «1,20» o «1.800»), su «poi», e su « e » solo se a sinistra e a destra c'è un importo
+  // e a destra non comincia un numero («12 euro e 50» resta uno). I pezzi senza importo si
+  // riattaccano al successivo: «Spesa, frutta e verdura 20» resta uno.
+  function haImporto(pezzo, opz) { return analizza(pezzo, opz).importo > 0; }
+  function iniziaConNumero(pezzo) {
+    const primo = normalizza(pezzo.trim()).split(/\s+/)[0] || '';
+    return /^[+\-−€]?\d/.test(primo) || numeroDaParola(primo) !== null || primo === 'un' || primo === 'uno' || primo === 'euro';
+  }
+  function dividi(testo, opz) {
+    const grezzi = String(testo).split(/\s+e\s+poi\s+|\s+poi\s+|\n|;|,\s+|\.\s+/i).map(x => x.trim()).filter(Boolean);
+    const uniti = [];
+    let attesa = '';
+    for (const g of grezzi) {
+      const pezzo = attesa ? attesa + ', ' + g : g;
+      if (haImporto(pezzo, opz)) { uniti.push(pezzo); attesa = ''; } else attesa = pezzo;
+    }
+    if (attesa) { if (uniti.length) uniti[uniti.length - 1] += ', ' + attesa; else uniti.push(attesa); }
+    const finali = [];
+    for (const u of uniti) {
+      let resto = u;
+      for (;;) {
+        const re = /\s+e\s+/gi;
+        let m, diviso = false;
+        while ((m = re.exec(resto))) {
+          const sx = resto.slice(0, m.index), dx = resto.slice(m.index + m[0].length);
+          if (haImporto(sx, opz) && haImporto(dx, opz) && !iniziaConNumero(dx)) { finali.push(sx.trim()); resto = dx; diviso = true; break; }
+        }
+        if (!diviso) break;
+      }
+      finali.push(resto.trim());
+    }
+    return finali.slice(0, 12);
+  }
+
+  // Come analizza, ma restituisce un elenco: uno per movimento. Chi non ha una data sua prende
+  // la prima data detta nella frase («ieri pizza 12, benzina 50»: tutte e due ieri).
+  function analizzaFrasi(testo, opz) {
+    opz = opz || {};
+    if (!String(testo).trim()) return [];
+    const risultati = dividi(testo, opz).map(p => Object.assign(analizza(p, opz), { testo: p }));
+    const conData = risultati.find(r => r.certo.data);
+    if (conData) for (const r of risultati) if (!r.certo.data) r.data = conData.data;
+    return risultati;
+  }
+
+  globale.Analizza = { analizza, analizzaFrasi, dividi, CATEGORIE, RIPIEGO, elenco, ripiego, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
 })(typeof window !== 'undefined' ? window : globalThis);
