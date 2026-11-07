@@ -1,11 +1,14 @@
 /* Conti — fa funzionare l'app senza rete.
    Tiene in memoria i file dell'app (non i dati: quelli stanno nel localStorage).
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
-const VERSIONE = '2026.11.07-1819';
-const CACHE = 'conti-' + VERSIONE;
+importScripts('edizione.js');
+const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
+const VERSIONE = '2026.11.07-1938';
+const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
   './index.html',
+  './edizione.js',
   './stile.css',
   './analizza.js',
   './app.js',
@@ -17,7 +20,9 @@ const FILE = [
 
 // Gli sfondi stanno in una memoria a parte che non cambia a ogni versione dell'app:
 // si scaricano una volta sola. Se cambiano le foto, cambia SFONDI_CACHE.
-const SFONDI_CACHE = 'conti-sfondi-1';
+const SFONDI_CACHE = PREFISSO + 'sfondi-1';
+// solo le memorie di questa edizione: «conti-2026…» non tocca «conti-riccardo-2026…» sullo stesso dominio
+const mia = k => k.startsWith(PREFISSO) && /^(\d|sfondi-)/.test(k.slice(PREFISSO.length));
 const SFONDI = ['dolomiti', 'venezia', 'veliero', 'fuji', 'stelle', 'castello', 'bosco', 'aurora']
   .flatMap(n => ['./sfondi/' + n + '.webp', './sfondi/' + n + '-mini.webp'])
   .concat(['./sfondi/sfondi.json']);
@@ -35,7 +40,7 @@ self.addEventListener('install', evento => {
 self.addEventListener('activate', evento => {
   evento.waitUntil(
     caches.keys()
-      .then(chiavi => Promise.all(chiavi.filter(k => k.startsWith('conti-') && k !== CACHE && k !== SFONDI_CACHE).map(k => caches.delete(k))))
+      .then(chiavi => Promise.all(chiavi.filter(k => mia(k) && k !== CACHE && k !== SFONDI_CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });

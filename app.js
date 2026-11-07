@@ -2,8 +2,10 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.07-1819';
-  const CHIAVE = 'conti.v1';
+  const VERSIONE = '2026.11.07-1938';
+  const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
+    inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
+  const CHIAVE = ED.chiave;
   const A = window.Analizza;
   const $ = id => document.getElementById(id);
   const GIORNO_MS = 86400000;
@@ -35,7 +37,7 @@
   const nuovoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
   // preferenze dell'app: fuori dai movimenti, così non finiscono nell'esportazione
-  const CHIAVE_PREF = 'conti.preferenze';
+  const CHIAVE_PREF = ED.chiavePref;
   function caricaPref() {
     try { return Object.assign({ sfondo: 'giorno' }, JSON.parse(localStorage.getItem(CHIAVE_PREF)) || {}); }
     catch (e) { return { sfondo: 'giorno' }; }
@@ -44,7 +46,7 @@
   function scriviPref() { try { localStorage.setItem(CHIAVE_PREF, JSON.stringify(pref)); } catch (e) { /* non grave */ } }
 
   // il periodo di prova finisce qui: da questo giorno l'app propone di cancellare i movimenti di prima
-  const INIZIO_SUL_SERIO = '2026-12-01';
+  const INIZIO_SUL_SERIO = ED.inizioSulSerio;   // null nelle edizioni senza periodo di prova
 
   // ================================================================ formati
   // 1.234,56 € — fatto a mano: Intl in italiano non mette il punto sotto i 10.000 (2400 €)
@@ -649,10 +651,10 @@
 
       const bCopia = tasto('azione', 'Copia tutto come testo', async () => {
         const ok = await copiaTesto(testoEsportazione());
-        if (ok) { segnaBackup(); chiudiFoglio(); mostraToast('Copiato: incollalo a Claude o in una nota'); }
+        if (ok) { segnaBackup(); chiudiFoglio(); mostraToast(ED.avvisoCopiato); }
         else mostraToast('Non sono riuscito a copiare');
       });
-      bCopia.appendChild(el('small', '', 'Da incollare a Claude, che lo salva nel second brain: è anche la tua copia di sicurezza.'));
+      bCopia.appendChild(el('small', '', ED.testoCopia));
       azioni.appendChild(bCopia);
 
       if (navigator.share) {
@@ -757,6 +759,7 @@
   }
 
   function disegnaBannerProva() {
+    if (!INIZIO_SUL_SERIO) { $('bannerProva').hidden = true; return; }
     const prove = stato.movimenti.filter(m => m.data < INIZIO_SUL_SERIO);
     const mostra = A.isoDa(oggi()) >= INIZIO_SUL_SERIO && !pref.proveChiuse && prove.length > 0;
     $('bannerProva').hidden = !mostra;
@@ -970,5 +973,5 @@
   }
 
   // per le prove automatiche
-  window.__conti = { versione: VERSIONE, stato: () => stato, pref: () => pref, testoEsportazione, importaTesto };
+  window.__conti = { versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, importaTesto };
 })();
