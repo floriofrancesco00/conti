@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Conti</title>
+<meta name="description" content="Entrate e uscite, segnate a voce. I dati restano sul telefono.">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Conti">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icone/icona-180.png">
+<link rel="icon" type="image/png" href="icone/icona-192.png">
+<link rel="stylesheet" href="stile.css">
+</head>
+<body>
+<header class="testata">
+  <h1>Conti</h1>
+  <button id="apriMenu" class="tasto-icona" type="button" aria-label="Esporta, importa e informazioni">
+    <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+  </button>
+</header>
+
+<main>
+  <section class="segna" aria-label="Segna un movimento">
+    <label for="frase" class="etichetta">Cosa hai speso o incassato?</label>
+    <textarea id="frase" rows="1" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="sentences"
+      spellcheck="false" placeholder="pizza 12 ieri · provvigione 1800"></textarea>
+    <div id="anteprima" class="anteprima" hidden>
+      <div class="chips">
+        <button id="chipTipo" class="chip" type="button"></button>
+        <button id="chipCategoria" class="chip" type="button"></button>
+        <button id="chipData" class="chip" type="button"></button>
+      </div>
+      <div class="anteprima-riga">
+        <div class="anteprima-testo">
+          <div id="antImporto" class="ant-importo"></div>
+          <div id="antDescrizione" class="ant-descrizione"></div>
+        </div>
+        <button id="salva" class="tasto-primario" type="button">Salva</button>
+      </div>
+      <p id="antAvviso" class="avviso" hidden></p>
+    </div>
+    <p id="suggerimento" class="suggerimento">Per dettare tocca il microfono della tastiera. Data, tipo e categoria si correggono toccandoli.</p>
+  </section>
+
+  <div id="bannerBackup" class="banner" hidden>
+    <p id="bannerTesto"></p>
+    <button id="bannerEsporta" class="tasto-secondario" type="button">Esporta</button>
+  </div>
+
+  <section class="periodo" aria-label="Periodo">
+    <div class="nav-periodo">
+      <button id="prec" class="tasto-icona" type="button" aria-label="Periodo precedente">‹</button>
+      <h2 id="titoloPeriodo"></h2>
+      <button id="succ" class="tasto-icona" type="button" aria-label="Periodo successivo">›</button>
+    </div>
+    <div class="segmentato" role="group" aria-label="Mese o anno">
+      <button type="button" data-modo="mese" aria-pressed="true">Mese</button>
+      <button type="button" data-modo="anno" aria-pressed="false">Anno</button>
+    </div>
+  </section>
+
+  <section class="riepilogo" aria-label="Riepilogo">
+    <p class="hero-etichetta" id="heroEtichetta"></p>
+    <p class="hero" id="heroValore"></p>
+    <p class="hero-sotto" id="heroSotto"></p>
+    <div class="tessere">
+      <div class="tessera"><span class="t-etichetta">Entrate</span><span class="t-valore" id="totEntrate"></span></div>
+      <div class="tessera"><span class="t-etichetta">Uscite</span><span class="t-valore" id="totUscite"></span></div>
+      <div class="tessera"><span class="t-etichetta">Investiti</span><span class="t-valore" id="totInvestiti"></span></div>
+    </div>
+  </section>
+
+  <section id="sezCategorie" class="sezione" aria-labelledby="titoloCategorie">
+    <h3 id="titoloCategorie">Spese per categoria</h3>
+    <ol id="barre" class="barre"></ol>
+  </section>
+
+  <section id="sezMesi" class="sezione" aria-labelledby="titoloMesi" hidden>
+    <h3 id="titoloMesi">Mese per mese</h3>
+    <table class="tabella-mesi">
+      <thead><tr><th scope="col">Mese</th><th scope="col">Entrate</th><th scope="col">Uscite</th><th scope="col">Saldo</th></tr></thead>
+      <tbody id="righeMesi"></tbody>
+    </table>
+  </section>
+
+  <section id="sezMovimenti" class="sezione" aria-labelledby="titoloMovimenti">
+    <div class="titolo-sez">
+      <h3 id="titoloMovimenti">Movimenti</h3>
+      <button id="filtro" class="chip piccolo" type="button" hidden></button>
+    </div>
+    <div id="lista"></div>
+  </section>
+</main>
+
+<div id="velo" class="velo" hidden></div>
+<div id="foglio" class="foglio" role="dialog" aria-modal="true" aria-labelledby="foglioTitolo" hidden>
+  <div class="maniglia" aria-hidden="true"></div>
+  <div id="foglioCorpo"></div>
+</div>
+<div id="toast" class="toast" role="status" hidden><span id="toastTesto"></span><button id="toastAzione" type="button" hidden></button></div>
+
+<script src="analizza.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
