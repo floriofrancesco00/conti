@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.07-1732';
+  const VERSIONE = '2026.11.07-1819';
   const CHIAVE = 'conti.v1';
   const A = window.Analizza;
   const $ = id => document.getElementById(id);
@@ -33,6 +33,18 @@
     return true;
   }
   const nuovoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+
+  // preferenze dell'app: fuori dai movimenti, così non finiscono nell'esportazione
+  const CHIAVE_PREF = 'conti.preferenze';
+  function caricaPref() {
+    try { return Object.assign({ sfondo: 'giorno' }, JSON.parse(localStorage.getItem(CHIAVE_PREF)) || {}); }
+    catch (e) { return { sfondo: 'giorno' }; }
+  }
+  let pref = caricaPref();
+  function scriviPref() { try { localStorage.setItem(CHIAVE_PREF, JSON.stringify(pref)); } catch (e) { /* non grave */ } }
+
+  // il periodo di prova finisce qui: da questo giorno l'app propone di cancellare i movimenti di prima
+  const INIZIO_SUL_SERIO = '2026-12-01';
 
   // ================================================================ formati
   // 1.234,56 € — fatto a mano: Intl in italiano non mette il punto sotto i 10.000 (2400 €)
@@ -327,6 +339,7 @@
 
   function disegna() {
     const ora = oggi();
+    $('oggi').textContent = maiuscola(['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'][ora.getDay()]) + ' ' + ora.getDate() + ' ' + MESI[ora.getMonth()];
     const titolo = vista.modo === 'anno' ? String(vista.anno) : maiuscola(MESI[vista.mese]) + ' ' + vista.anno;
     $('titoloPeriodo').textContent = titolo;
     const allaFine = vista.modo === 'anno' ? vista.anno >= ora.getFullYear()
@@ -350,6 +363,7 @@
     if (vista.modo === 'anno') disegnaMesi();
     disegnaLista(lista);
     disegnaBanner();
+    disegnaBannerProva();
   }
 
   function disegnaBarre(lista, totUscite) {
@@ -622,10 +636,15 @@
   function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
 
   function apriMenu() {
-    apriFoglio('Esporta e importa', corpo => {
+    apriFoglio('Menù', corpo => {
+      corpo.appendChild(el('div', 'titoletto', 'Sfondo'));
+      filaSfondi(corpo);
+
+      corpo.appendChild(el('div', 'titoletto', 'I tuoi movimenti'));
       const n = stato.movimenti.length;
       corpo.appendChild(el('p', '', n + (n === 1 ? ' movimento' : ' movimenti') + ' salvati su questo telefono. ' + testoUltimoBackup()));
       const azioni = el('div', 'elenco-azioni');
+      azioni.style.marginTop = '10px';
       corpo.appendChild(azioni);
 
       const bCopia = tasto('azione', 'Copia tutto come testo', async () => {
@@ -658,7 +677,16 @@
       bImp.appendChild(el('small', '', 'Incolla un\'esportazione: i movimenti già presenti non si doppiano.'));
       azioni.appendChild(bImp);
 
+      const bZero = tasto('azione', 'Ricomincia da zero', ricomincia);
+      bZero.style.color = 'var(--critico)';
+      bZero.disabled = !n;
+      bZero.appendChild(el('small', '', 'Cancella tutti i movimenti, per esempio quelli di prova. Le parole imparate restano.'));
+      azioni.appendChild(bZero);
+
       corpo.appendChild(el('p', 'nota', 'I movimenti esistono solo dentro questa app sul telefono. Se cancelli l\'icona dalla schermata Home o i dati del sito, spariscono: esporta ogni tanto.'));
+      const crediti = tasto('tasto-secondario', 'Crediti delle foto', apriCrediti);
+      crediti.style.marginTop = '12px';
+      corpo.appendChild(crediti);
       const info = el('p', 'nota', 'Versione ' + VERSIONE + '. ');
       const aggiorna = tasto('tasto-secondario', 'Cerca aggiornamenti', async () => {
         if (!navigator.serviceWorker) return;
@@ -706,6 +734,195 @@
     if (mostra) $('bannerTesto').textContent = 'I movimenti stanno solo su questo telefono. ' + testoUltimoBackup();
   }
 
+  // ================================================================ ricominciare e fine delle prove
+  function cancella(condizione, messaggio) {
+    const tolti = stato.movimenti.filter(condizione);
+    stato.movimenti = stato.movimenti.filter(m => !condizione(m));
+    scrivi();
+    chiudiFoglio();
+    disegna();
+    mostraToast(messaggio, 'Annulla', () => { stato.movimenti = stato.movimenti.concat(tolti); scrivi(); disegna(); });
+  }
+
+  function ricomincia() {
+    const n = stato.movimenti.length;
+    apriFoglio('Ricomincia da zero', corpo => {
+      corpo.appendChild(el('p', '', 'Cancello tutti i ' + n + ' movimenti. Restano le parole che l\'app ha imparato dalle tue correzioni e lo sfondo.'));
+      corpo.appendChild(el('p', '', 'Se vuoi tenerne una copia, prima usa «Copia tutto come testo».'));
+      const riga = el('div', 'riga-tasti');
+      riga.appendChild(tasto('tasto-secondario', 'Annulla', chiudiFoglio));
+      riga.appendChild(tasto('tasto-pericolo', 'Cancella tutto', () => cancella(() => true, 'Cancellati ' + n + ' movimenti')));
+      corpo.appendChild(riga);
+    });
+  }
+
+  function disegnaBannerProva() {
+    const prove = stato.movimenti.filter(m => m.data < INIZIO_SUL_SERIO);
+    const mostra = A.isoDa(oggi()) >= INIZIO_SUL_SERIO && !pref.proveChiuse && prove.length > 0;
+    $('bannerProva').hidden = !mostra;
+    if (mostra) $('bannerProvaTesto').textContent = 'Dal 1° dicembre si fa sul serio. Cancello i ' + prove.length +
+      (prove.length === 1 ? ' movimento di prova segnato' : ' movimenti di prova segnati') + ' prima?';
+  }
+  $('provaTieni').addEventListener('click', () => { pref.proveChiuse = true; scriviPref(); disegnaBannerProva(); });
+  $('provaCancella').addEventListener('click', () => {
+    pref.proveChiuse = true;
+    scriviPref();
+    cancella(m => m.data < INIZIO_SUL_SERIO, 'Cancellate le prove');
+  });
+
+  // ================================================================ sfondi
+  let sfondi = [];   // da sfondi/sfondi.json: id, nome, autore, licenza, fonte
+  function sfondoDiOggi() {
+    if (!sfondi.length) return pref.ultimoSfondo || null;
+    const d = oggi();
+    const giorno = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / GIORNO_MS);
+    return sfondi[giorno % sfondi.length].id;
+  }
+  function applicaSfondo() {
+    let id = pref.sfondo === 'giorno' ? sfondoDiOggi() : (pref.sfondo === 'nessuno' ? null : pref.sfondo);
+    if (id && sfondi.length && !sfondi.some(x => x.id === id)) id = sfondoDiOggi();
+    const s = $('sfondo');
+    const info = sfondi.find(x => x.id === id);
+    $('sfondoNome').textContent = info ? info.nome : '';
+    if (id) {
+      s.style.backgroundImage = 'url("sfondi/' + id + '.webp")';
+      s.classList.add('foto');
+      if (pref.ultimoSfondo !== id) { pref.ultimoSfondo = id; scriviPref(); }
+    } else {
+      s.style.backgroundImage = '';
+      s.classList.remove('foto');
+    }
+  }
+  function filaSfondi(corpo) {
+    const fila = el('div', 'fila-sfondi');
+    const opzioni = [{ id: 'giorno', nome: 'Ogni giorno' }]
+      .concat(sfondi.map(s => ({ id: s.id, nome: s.nome })), [{ id: 'nessuno', nome: 'Tinta unita' }]);
+    for (const o of opzioni) {
+      const b = el('button', 'scelta-sfondo');
+      b.type = 'button';
+      b.dataset.sfondo = o.id;
+      const mini = el('span', 'mini');
+      if (o.id === 'giorno') {
+        const id = sfondoDiOggi();
+        if (id) mini.style.backgroundImage = 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35)), url("sfondi/' + id + '-mini.webp")';
+        mini.textContent = '⟳';
+      } else if (o.id === 'nessuno') {
+        mini.style.backgroundImage = 'linear-gradient(180deg, #184f95, #256abf 40%, var(--pagina))';
+      } else {
+        mini.style.backgroundImage = 'url("sfondi/' + o.id + '-mini.webp")';
+      }
+      b.appendChild(mini);
+      b.appendChild(document.createTextNode(o.nome));
+      b.setAttribute('aria-pressed', String(pref.sfondo === o.id));
+      b.addEventListener('click', () => {
+        pref.sfondo = o.id;
+        scriviPref();
+        applicaSfondo();
+        fila.querySelectorAll('.scelta-sfondo').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      });
+      fila.appendChild(b);
+    }
+    corpo.appendChild(fila);
+  }
+  function apriCrediti() {
+    apriFoglio('Crediti delle foto', corpo => {
+      corpo.appendChild(el('p', '', 'Foto «in vetrina» di Wikimedia Commons, ritagliate per il telefono. Le licenze libere chiedono di citare chi le ha scattate.'));
+      const ul = el('ul', 'passi crediti');
+      for (const s of sfondi) {
+        const li = el('li');
+        li.appendChild(el('b', '', s.nome + ': '));
+        li.appendChild(document.createTextNode(s.autore + ' · ' + s.licenza + ' · '));
+        const a = el('a', '', 'originale');
+        a.href = s.fonte; a.target = '_blank'; a.rel = 'noopener';
+        li.appendChild(a);
+        ul.appendChild(li);
+      }
+      corpo.appendChild(ul);
+    });
+  }
+  applicaSfondo();
+  fetch('sfondi/sfondi.json').then(r => r.json()).then(l => { if (Array.isArray(l)) { sfondi = l; applicaSfondo(); } }).catch(() => {});
+
+  // ================================================================ microfono
+  // Le app aggiunte alla schermata Home dell'iPhone non hanno il riconoscimento vocale del browser
+  // (WebKit bug 225298): si prova, e se non parte si spiega la dettatura della tastiera.
+  const Riconoscimento = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const inApp = window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches;
+  let ascolto = null;
+
+  function guidaDettatura(motivo) {
+    apriFoglio('Dettare a voce', corpo => {
+      if (motivo) corpo.appendChild(el('p', '', motivo));
+      const ol = el('ol', 'passi');
+      ol.style.marginTop = '10px';
+      const passo = (forte, resto) => { const li = el('li'); li.appendChild(el('b', '', forte)); li.appendChild(document.createTextNode(resto)); ol.appendChild(li); };
+      passo('Tocca «Ho capito»', ': si apre la tastiera.');
+      passo('Tocca il microfono', ' in basso a destra, sotto i tasti.');
+      passo('Parla come in un vocale', ', per esempio «pizza dodici euro ieri», poi tocca Salva.');
+      passo('Se il microfono non c\'è', ': Impostazioni → Generali → Tastiera → attiva «Abilita dettatura».');
+      corpo.appendChild(ol);
+      const riga = el('div', 'riga-tasti');
+      riga.appendChild(tasto('tasto-primario', 'Ho capito', () => { chiudiFoglio(); campoFrase.focus(); }));
+      corpo.appendChild(riga);
+      if (Riconoscimento && pref.voce === 'no') {
+        const r = tasto('tasto-secondario', 'Riprova il microfono dell\'app', () => { delete pref.voce; scriviPref(); chiudiFoglio(); microfono(); });
+        r.style.marginTop = '12px';
+        corpo.appendChild(r);
+      }
+    });
+  }
+
+  function microfono() {
+    if (ascolto) { ascolto.stop(); return; }
+    if (!Riconoscimento || pref.voce === 'no') {
+      guidaDettatura(inApp || !Riconoscimento
+        ? 'Sull\'iPhone le app aggiunte alla schermata Home non possono ascoltare da sole: si detta con il microfono della tastiera, che è altrettanto veloce.'
+        : '');
+      return;
+    }
+    const r = new Riconoscimento();
+    r.lang = 'it-IT';
+    r.interimResults = true;
+    r.continuous = false;
+    const base = campoFrase.value.trim();
+    let partito = false, chiuso = false;
+    const bottone = $('microfono');
+    const fine = () => {
+      if (chiuso) return;
+      chiuso = true;
+      clearTimeout(attesa);
+      ascolto = null;
+      bottone.classList.remove('ascolta');
+      bottone.setAttribute('aria-label', 'Detta a voce');
+    };
+    const nonVa = () => {
+      fine();
+      pref.voce = 'no';
+      scriviPref();
+      guidaDettatura('Su questo telefono il microfono dell\'app non risponde: usa quello della tastiera.');
+    };
+    const attesa = setTimeout(() => { if (!partito) { try { r.abort(); } catch (e) { /* già chiuso */ } nonVa(); } }, 2500);
+    r.onaudiostart = r.onstart = () => { partito = true; };
+    r.onresult = e => {
+      let t = '';
+      for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript;
+      campoFrase.value = (base ? base + ' ' : '') + t.trim();
+      if (!pref.voce) { pref.voce = 'si'; scriviPref(); }
+      rileggi();
+    };
+    r.onerror = e => {
+      if (['not-allowed', 'service-not-allowed', 'audio-capture', 'network'].includes(e.error) && !campoFrase.value.trim()) { nonVa(); return; }
+      fine();
+      if (e.error === 'no-speech') mostraToast('Non ho sentito niente: riprova');
+    };
+    r.onend = fine;
+    ascolto = r;
+    bottone.classList.add('ascolta');
+    bottone.setAttribute('aria-label', 'Smetti di ascoltare');
+    try { r.start(); } catch (e) { nonVa(); }
+  }
+  $('microfono').addEventListener('click', microfono);
+
   // ================================================================ eventi generali
   $('apriMenu').addEventListener('click', apriMenu);
   $('bannerEsporta').addEventListener('click', apriMenu);
@@ -732,7 +949,7 @@
   // altri schermi (un'altra scheda) che cambiano i dati
   window.addEventListener('storage', e => { if (e.key === CHIAVE) { stato = carica(); disegna(); } });
   // a mezzanotte «oggi» cambia: si ridisegna quando l'app torna in primo piano
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) { rileggi(); disegna(); } });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { rileggi(); disegna(); applicaSfondo(); } });
 
   rileggi();
   disegna();
@@ -753,5 +970,5 @@
   }
 
   // per le prove automatiche
-  window.__conti = { versione: VERSIONE, stato: () => stato, testoEsportazione, importaTesto };
+  window.__conti = { versione: VERSIONE, stato: () => stato, pref: () => pref, testoEsportazione, importaTesto };
 })();
