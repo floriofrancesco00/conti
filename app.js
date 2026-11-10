@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.10-2001';
+  const VERSIONE = '2026.11.10-2009';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -218,7 +218,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'ora si aggiorna da sola, senza toccare niente';
+  const NOVITA = 'le versioni nuove arrivano da sole, senza toccare niente';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -328,7 +328,7 @@
     if (g && g.da !== VERSIONE) try { sessionStorage.removeItem(CHIAVE_AGG); } catch (e) {}
     const da = (g && g.da) || prima;
     if (!da || da >= VERSIONE) return;   // prima apertura, o la stessa versione
-    const avvisa = () => mostraToast('✓ Aggiornata da sola' + (NOVITA ? ' · ' + NOVITA : ''), null, null, NOVITA ? 7000 : 4000);
+    const avvisa = () => mostraToast('✓ Aggiornata da sola' + (NOVITA ? '. Novità: ' + NOVITA : ''), null, null, NOVITA ? 7000 : 4000);
     if (!document.hidden) { setTimeout(avvisa, 500); return; }
     const quando = () => { if (document.hidden) return; document.removeEventListener('visibilitychange', quando); setTimeout(avvisa, 500); };
     document.addEventListener('visibilitychange', quando);

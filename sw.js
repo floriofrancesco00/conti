@@ -3,7 +3,7 @@
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
 importScripts('edizione.js');
 const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
-const VERSIONE = '2026.11.10-2001';
+const VERSIONE = '2026.11.10-2009';
 const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
