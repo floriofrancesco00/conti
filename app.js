@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.10-1716';
+  const VERSIONE = '2026.11.10-2001';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -194,7 +194,7 @@
 
   // ================================================================ toast
   let timerToast = null;
-  function mostraToast(testo, azione, alClic) {
+  function mostraToast(testo, azione, alClic, durata) {
     $('toastTesto').textContent = testo;
     const b = $('toastAzione');
     b.hidden = !azione;
@@ -202,22 +202,49 @@
     b.onclick = () => { nascondiToast(); if (alClic) alClic(); };
     $('toast').hidden = false;
     clearTimeout(timerToast);
-    timerToast = setTimeout(nascondiToast, azione ? 6000 : 3500);
+    timerToast = setTimeout(nascondiToast, durata || (azione ? 6000 : 3500));
   }
   function nascondiToast() { $('toast').hidden = true; }
 
   // ================================================================ aggiornamenti
-  // La versione nuova arriva col service worker. Safari risponde a reg.update() solo a installazione finita
-  // (provato su WebKit il 10/11/2026): reg.installing e reg.waiting sono già vuoti e la versione vecchia diceva
-  // «È già l'ultima versione» con quella nuova già attiva. Si chiede quindi al service worker la sua versione.
-  // Se arriva mentre lui sta facendo qualcosa, si ricarica appena può: chiuso il foglio o tornando sull'app.
-  let versionePronta = false;
+  // Dal 10/11/2026 sera arrivano da soli, senza tocchi. Francesco: «voglio che li aggiorni direttamente sul mio
+  // cellulare, senza che io debba schiacciare qualcosa». Prima si contava sul controllo di Safari e su reg.update()
+  // tornando sull'app, e il telefono restava indietro.
+  // 1. All'apertura, tornando sull'app, tornando la rete e ogni 2 minuti con l'app davanti si legge la versione
+  //    pubblicata (sw.js scaricato senza nessuna memoria in mezzo). Se è più nuova la si fa installare al service
+  //    worker; se Safari risponde con un sw.js vecchio, lo si registra con l'indirizzo della versione, che lo costringe.
+  // 2. Arrivata, la pagina si ricarica da sola appena non gli toglie niente: frase vuota, microfono fermo, nessun
+  //    foglio aperto, nessun «Annulla», e lui fermo da 2 secondi. Uscendo dall'app subito. Si riprova ogni 2 secondi.
+  // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
+  // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
+  // service worker gliela si chiede con un messaggio.
+  const NOVITA = 'ora si aggiorna da sola, senza toccare niente';
+  const CHIAVE_AGG = CHIAVE + '.aggiornamento';
+  let versionePronta = false, timerPronta = null, controlloInCorso = null, ultimoTocco = 0, ultimoControllo = null;
+  ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
   const puoRicaricare = () => !campoFrase.value.trim() && statoVoce === 'fermo' &&
     ($('toast').hidden || $('toastAzione').hidden || $('toastAzione').textContent !== 'Annulla');
-  function ricaricaSePuoi() {
-    if (!versionePronta || foglioAperto() || !puoRicaricare()) return false;
+  function ricarica() {
+    // mai in giro tondo: se due ricariche di fila non portano la versione nuova, ci si ferma fino alla prossima apertura
+    let g = {};
+    try { g = JSON.parse(sessionStorage.getItem(CHIAVE_AGG) || '{}'); } catch (e) { g = {}; }
+    if (g.da === VERSIONE && g.volte >= 2 && Date.now() - g.quando < 300000) return false;
+    try { sessionStorage.setItem(CHIAVE_AGG, JSON.stringify({ da: VERSIONE, volte: g.da === VERSIONE ? (g.volte || 0) + 1 : 1, quando: Date.now() })); } catch (e) {}
     location.reload();
     return true;
+  }
+  // senzaAttesa: tornando sull'app, chiudendo un foglio o uscendo, non serve che sia fermo da 2 secondi
+  function ricaricaSePuoi(senzaAttesa) {
+    if (!versionePronta || foglioAperto() || !puoRicaricare()) return false;
+    if (!senzaAttesa && !document.hidden && Date.now() - ultimoTocco < 2000) return false;
+    return ricarica();
+  }
+  function prontaLaNuova() {
+    if (versionePronta) return;
+    versionePronta = true;
+    if (ricaricaSePuoi()) return;
+    clearInterval(timerPronta);
+    timerPronta = setInterval(() => { if (ricaricaSePuoi()) clearInterval(timerPronta); }, 2000);
   }
   function versioneDelServiceWorker(reg) {
     const sw = (reg && reg.active) || navigator.serviceWorker.controller;
@@ -229,25 +256,83 @@
       setTimeout(() => ok(null), 3000);
     });
   }
-  async function cercaAggiornamenti() {
-    if (!navigator.serviceWorker) return;
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg) return mostraToast('Qui gli aggiornamenti non si controllano');
-    mostraToast('Cerco la versione nuova…');
-    await reg.update().catch(() => {});
-    const nuovo = reg.installing || reg.waiting;
-    if (nuovo) await new Promise(ok => {
-      const guarda = () => { if (nuovo.state === 'activated' || nuovo.state === 'redundant') ok(); };
-      nuovo.addEventListener('statechange', guarda);
-      guarda();
-      setTimeout(ok, 60000);
-    });
-    const v = await versioneDelServiceWorker(reg);
-    if (v && v !== VERSIONE) versionePronta = true;
-    if (!versionePronta) return mostraToast('È già l\'ultima versione');
-    if (puoRicaricare()) { mostraToast('Aggiorno…'); setTimeout(() => location.reload(), 300); }
-    else mostraToast('Nuova versione pronta', 'Aggiorna', () => location.reload());
+  // la versione pubblicata: sw.js con un indirizzo sempre nuovo e senza memoria, né del telefono né di GitHub
+  async function versionePubblicata() {
+    try {
+      const r = await fetch('sw.js?controllo=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return null;
+      const m = (await r.text()).match(/const VERSIONE = '([^']+)'/);
+      return m ? m[1] : null;
+    } catch (e) { return null; }
   }
+  function aspettaAttivo(sw, ms) {
+    return new Promise(ok => {
+      if (!sw) return ok();
+      const guarda = () => { if (sw.state === 'activated' || sw.state === 'redundant') ok(); };
+      sw.addEventListener('statechange', guarda);
+      guarda();
+      setTimeout(ok, ms);
+    });
+  }
+  // fa installare al service worker la versione v: vero se ora ce l'ha
+  async function installa(reg, v) {
+    const ce = async r => (await versioneDelServiceWorker(r) || '') >= v;
+    await reg.update().catch(() => {});
+    await aspettaAttivo(reg.installing || reg.waiting, 60000);
+    if (await ce(reg)) return true;
+    // Safari ha preso un sw.js vecchio da qualche memoria: con un indirizzo nuovo lo deve riscaricare
+    const forzata = await navigator.serviceWorker.register('sw.js?v=' + v, { updateViaCache: 'none' }).catch(() => null);
+    if (!forzata) return false;
+    await aspettaAttivo(forzata.installing || forzata.waiting, 60000);
+    return ce(forzata);
+  }
+  // 'pronta' | 'ultima' | 'senza rete' | 'non arrivata' | 'nessuna'
+  function controllaVersione() {
+    if (versionePronta) return Promise.resolve('pronta');
+    if (controlloInCorso) return controlloInCorso;
+    if (!('serviceWorker' in navigator) || location.protocol === 'file:') return Promise.resolve('nessuna');
+    controlloInCorso = (async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) return 'nessuna';
+      const attiva = await versioneDelServiceWorker(reg);
+      if (attiva && attiva > VERSIONE) { prontaLaNuova(); return 'pronta'; }   // già scaricata: manca solo ricaricare
+      const v = await versionePubblicata();
+      if (!v) return 'senza rete';
+      ultimoControllo = new Date();
+      if (v <= VERSIONE) return 'ultima';
+      if (!(await installa(reg, v))) return 'non arrivata';
+      prontaLaNuova();
+      return 'pronta';
+    })().catch(() => 'non arrivata').finally(() => { controlloInCorso = null; });
+    return controlloInCorso;
+  }
+  async function cercaAggiornamenti() {
+    mostraToast('Cerco la versione nuova…');
+    const esito = await controllaVersione();
+    if (esito === 'pronta') {
+      if (puoRicaricare()) { mostraToast('Aggiorno…'); setTimeout(ricarica, 300); }
+      else mostraToast('Versione nuova pronta: si mette da sola appena finisci');
+      return;
+    }
+    mostraToast({ 'senza rete': 'Senza rete: ci riprova da sola quando torna', 'non arrivata': 'Non è arrivata: ci riprova da sola tra poco',
+      nessuna: 'Qui gli aggiornamenti non si controllano' }[esito] || 'È già l\'ultima versione');
+  }
+  // appena aperta dopo un aggiornamento: l'avviso, quando lui la guarda. La versione vista l'ultima volta sta nel
+  // telefono, così l'avviso c'è anche venendo da una versione che non lo sapeva fare (la 1716 e prima)
+  (function avvisoAggiornata() {
+    const k = CHIAVE + '.versioneVista';
+    let prima = null;
+    try { prima = localStorage.getItem(k); localStorage.setItem(k, VERSIONE); } catch (e) { prima = null; }
+    let g = null;
+    try { g = JSON.parse(sessionStorage.getItem(CHIAVE_AGG) || 'null'); } catch (e) { g = null; }
+    if (g && g.da !== VERSIONE) try { sessionStorage.removeItem(CHIAVE_AGG); } catch (e) {}
+    const da = (g && g.da) || prima;
+    if (!da || da >= VERSIONE) return;   // prima apertura, o la stessa versione
+    const avvisa = () => mostraToast('✓ Aggiornata da sola' + (NOVITA ? ' · ' + NOVITA : ''), null, null, NOVITA ? 7000 : 4000);
+    if (!document.hidden) { setTimeout(avvisa, 500); return; }
+    const quando = () => { if (document.hidden) return; document.removeEventListener('visibilitychange', quando); setTimeout(avvisa, 500); };
+    document.addEventListener('visibilitychange', quando);
+  })();
 
   // ================================================================ foglio dal basso
   // Si chiude toccando il velo, col tasto Esc o trascinandolo in giù (dal 10/11/2026), come i fogli dell'iPhone.
@@ -286,7 +371,7 @@
       f.hidden = true; v.hidden = true; f.classList.remove('via'); f.style.transform = ''; v.style.opacity = '';
     }
     if (cb) cb();
-    if (versionePronta) setTimeout(ricaricaSePuoi, 400);
+    if (versionePronta) setTimeout(() => ricaricaSePuoi(true), 400);
   }
   const foglioAperto = () => !$('foglio').hidden && !$('foglio').classList.contains('via');
 
@@ -1829,9 +1914,11 @@
       const crediti = tasto('tasto-secondario', 'Crediti delle foto', apriCrediti);
       crediti.style.marginTop = '12px';
       corpo.appendChild(crediti);
-      const info = el('p', 'nota', 'Versione ' + VERSIONE + (versionePronta ? ' · è pronta quella nuova.' : '. '));
+      const ora = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+      const info = el('p', 'nota', 'Versione ' + VERSIONE + (versionePronta ? ' · è pronta quella nuova, si mette appena chiudi il menù.'
+        : ' · si aggiorna da sola' + (ultimoControllo ? ' (controllato alle ' + ora(ultimoControllo) + ').' : '.')));
       const aggiorna = tasto('tasto-secondario', versionePronta ? 'Aggiorna ora' : 'Cerca aggiornamenti',
-        () => versionePronta ? location.reload() : cercaAggiornamenti());
+        () => versionePronta ? ricarica() : cercaAggiornamenti());
       aggiorna.style.marginTop = '8px';
       info.appendChild(el('br'));
       info.appendChild(aggiorna);
@@ -2386,21 +2473,29 @@
   // ================================================================ funzionamento senza rete
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     const avevaController = !!navigator.serviceWorker.controller;
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
+    navigator.serviceWorker.addEventListener('controllerchange', async () => {
       if (!avevaController || versionePronta) return;   // la prima installazione non cambia niente da mostrare
-      versionePronta = true;
-      if (!ricaricaSePuoi()) mostraToast('Nuova versione pronta', 'Aggiorna', () => location.reload());
+      const v = await versioneDelServiceWorker();
+      if (v && v <= VERSIONE) return;                   // la stessa versione, registrata di nuovo
+      prontaLaNuova();
     });
-    navigator.serviceWorker.register('sw.js').then(reg => {
-      // tornando sull'app: prima la versione già arrivata, se no si guarda se ce n'è una
-      document.addEventListener('visibilitychange', () => { if (!document.hidden && !ricaricaSePuoi()) reg.update().catch(() => {}); });
-    }).catch(() => {});
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).catch(() => {});
+    // i momenti in cui guarda se c'è una versione nuova: aperta, tornando sull'app o la rete, ogni 2 minuti davanti
+    setTimeout(controllaVersione, 1500);
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) { ricaricaSePuoi(true); return; }   // uscendo: la ricarica non la vede nemmeno
+      if (!ricaricaSePuoi(true)) controllaVersione();
+    });
+    window.addEventListener('pageshow', e => { if (e.persisted) controllaVersione(); });
+    window.addEventListener('online', () => controllaVersione());
+    setInterval(() => { if (!document.hidden) controllaVersione(); }, 120000);
   }
 
   // per le prove automatiche
   window.__conti = {
     versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, testoLeggibile, importaTesto,
     generaRicorrenti, saldoAttuale, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
-    materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta
+    materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
+    controllaVersione, novita: NOVITA
   };
 })();

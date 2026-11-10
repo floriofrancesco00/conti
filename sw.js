@@ -3,7 +3,7 @@
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
 importScripts('edizione.js');
 const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
-const VERSIONE = '2026.11.10-1716';
+const VERSIONE = '2026.11.10-2001';
 const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
@@ -31,8 +31,17 @@ const SFONDI = ['dolomiti', 'venezia', 'veliero', 'fuji', 'stelle', 'castello', 
 
 self.addEventListener('install', evento => {
   evento.waitUntil(
-    caches.open(CACHE)
-      .then(cache => cache.addAll(FILE.map(u => new Request(u, { cache: 'reload' }))))
+    Promise.all(FILE.map(u =>
+      // «?v=» salta anche la memoria di GitHub. Ogni file si legge subito (se no tiene occupata la sua connessione e
+      // gli altri restano in coda per sempre) e si mettono in memoria solo quando sono arrivati tutti, della stessa
+      // versione: un app.js di un'altra versione romperebbe l'app, e allora si rinuncia (la pagina ci riprova da sola)
+      fetch(new Request(u + '?v=' + VERSIONE, { cache: 'reload' })).then(async r => {
+        if (!r.ok) throw new Error(u + ' ' + r.status);
+        const corpo = await r.blob();
+        if (u === './app.js' && !(await corpo.text()).includes("const VERSIONE = '" + VERSIONE + "'")) throw new Error('app.js di un\'altra versione');
+        return [u, new Response(corpo, { status: r.status, statusText: r.statusText, headers: r.headers })];
+      })))
+      .then(coppie => caches.open(CACHE).then(cache => Promise.all(coppie.map(([u, r]) => cache.put(u, r)))))
       .then(() => caches.open(SFONDI_CACHE))
       .then(cache => Promise.all(SFONDI.map(u => cache.match(u).then(c => c || cache.add(u).catch(() => {})))))
       .then(() => self.skipWaiting())
