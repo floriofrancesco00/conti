@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.10-2009';
+  const VERSIONE = '2026.11.10-2150';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -318,15 +318,20 @@
       nessuna: 'Qui gli aggiornamenti non si controllano' }[esito] || 'È già l\'ultima versione');
   }
   // appena aperta dopo un aggiornamento: l'avviso, quando lui la guarda. La versione vista l'ultima volta sta nel
-  // telefono, così l'avviso c'è anche venendo da una versione che non lo sapeva fare (la 1716 e prima)
+  // telefono (dalla 2001). Le versioni fino alla 1716 non la segnavano: se l'app era già usata (movimenti o
+  // preferenze) e la versione vista manca, viene da una di quelle, e l'avviso c'è lo stesso
   (function avvisoAggiornata() {
     const k = CHIAVE + '.versioneVista';
-    let prima = null;
-    try { prima = localStorage.getItem(k); localStorage.setItem(k, VERSIONE); } catch (e) { prima = null; }
+    let prima = null, giaUsata = false;
+    try {
+      prima = localStorage.getItem(k);
+      giaUsata = localStorage.getItem(CHIAVE) !== null || localStorage.getItem(CHIAVE_PREF) !== null;
+      localStorage.setItem(k, VERSIONE);
+    } catch (e) { prima = null; }
     let g = null;
     try { g = JSON.parse(sessionStorage.getItem(CHIAVE_AGG) || 'null'); } catch (e) { g = null; }
     if (g && g.da !== VERSIONE) try { sessionStorage.removeItem(CHIAVE_AGG); } catch (e) {}
-    const da = (g && g.da) || prima;
+    const da = (g && g.da) || prima || (giaUsata ? '0' : null);
     if (!da || da >= VERSIONE) return;   // prima apertura, o la stessa versione
     const avvisa = () => mostraToast('✓ Aggiornata da sola' + (NOVITA ? '. Novità: ' + NOVITA : ''), null, null, NOVITA ? 7000 : 4000);
     if (!document.hidden) { setTimeout(avvisa, 500); return; }
