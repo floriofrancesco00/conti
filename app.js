@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.07-2046';
+  const VERSIONE = '2026.11.10-1235';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -12,11 +12,13 @@
   const V = window.Voce;
   const $ = id => document.getElementById(id);
   const GIORNO_MS = 86400000;
-  const TIPI_DATI = ['uscita', 'entrata', 'investimento'];
+  const TIPI_DATI = ['uscita', 'entrata'];
+  const SCHEMA = 2;   // 2 = dal 10/11/2026: niente più tipo «investimento», categorie coi nomi nuovi
 
   // ================================================================ dati
   function vuoto() {
     return {
+      schema: SCHEMA,
       movimenti: [], imparate: {}, ultimoBackup: null,
       ricorrenti: [],          // movimenti fissi: si segnano da soli ogni mese
       categorie: null,         // null = quelle di partenza; altrimenti l'elenco personale per tipo
@@ -24,6 +26,56 @@
       tasse: { attiva: false, percentuale: 0, categorie: [], dal: null }
     };
   }
+
+  // Dati salvati con le versioni prima del 10/11/2026 (schema 1): si traducono una volta sola.
+  // Serve anche all'importazione di un testo vecchio. Ripeterla non fa danni.
+  function migra(s) {
+    const R = A.RINOMINATE;
+    const nome = (tipo, n) => (R[tipo] && R[tipo][n]) || n;
+    // 1. gli investimenti diventano uscite («Investimenti») e i ritiri entrate («Ritirato dagli investimenti»)
+    const converti = x => {
+      if (x.tipo === 'investimento') {
+        if (x.importo < 0) { x.tipo = 'entrata'; x.importo = -x.importo; x.categoria = A.RITIRATO; }
+        else { x.tipo = 'uscita'; x.categoria = A.INVESTIMENTI; }
+      } else x.categoria = nome(x.tipo, x.categoria);
+    };
+    s.movimenti.forEach(converti);
+    s.ricorrenti.forEach(converti);
+    for (const v of Object.values(s.imparate)) {
+      if (!v || typeof v !== 'object') continue;
+      if (v.tipo === 'investimento') { v.tipo = v.segno < 0 ? 'entrata' : 'uscita'; v.categoria = v.tipo === 'entrata' ? A.RITIRATO : A.INVESTIMENTI; }
+      else v.categoria = nome(v.tipo, v.categoria);
+      delete v.segno;
+    }
+    s.tasse.categorie = s.tasse.categorie.map(c => nome('entrata', c));
+    // 2. l'elenco personale delle categorie: nomi e simboli nuovi
+    if (s.categorie && typeof s.categorie === 'object') {
+      for (const tipo of TIPI_DATI) {
+        const lista = Array.isArray(s.categorie[tipo]) ? s.categorie[tipo] : null;
+        if (!lista) continue;
+        const nuovi = new Set(A.CATEGORIE[tipo].map(c => A.normalizza(c.nome)));
+        s.categorie[tipo] = lista.filter(p => {
+          if (p.base && R[tipo][p.base]) {
+            if (p.nome === p.base) p.nome = R[tipo][p.base];
+            p.base = R[tipo][p.base];
+          }
+          const icone = A.ICONE_CAMBIATE[tipo] && A.ICONE_CAMBIATE[tipo][p.base];
+          if (icone && p.icona === icone[0]) p.icona = icone[1];
+          // una categoria sua con lo stesso nome di una nuova di partenza («Tabacchi»): diventa quella
+          if (!p.base && nuovi.has(A.normalizza(p.nome)) && !lista.some(q => q !== p && q.base && A.normalizza(q.base) === A.normalizza(p.nome))) {
+            p.base = A.CATEGORIE[tipo].find(c => A.normalizza(c.nome) === A.normalizza(p.nome)).nome;
+          }
+          // una categoria vuota creata per sbaglio provando l'app (chiesto di toglierla il 10/11/2026)
+          const vuota = !p.base && !s.movimenti.some(m => m.tipo === tipo && m.categoria === p.nome) && !s.ricorrenti.some(r => r.tipo === tipo && r.categoria === p.nome);
+          return !(vuota && /^(dksks|dsks)$/.test(A.normalizza(p.nome)));
+        });
+      }
+      delete s.categorie.investimento;
+    }
+    s.schema = SCHEMA;
+    return s;
+  }
+
   function carica() {
     const grezzo = localStorage.getItem(CHIAVE);
     if (!grezzo) return vuoto();
@@ -35,6 +87,11 @@
         if (!s.imparate || typeof s.imparate !== 'object') s.imparate = {};
         s.tasse = Object.assign(vuoto().tasse, s.tasse || {});
         if (!Array.isArray(s.tasse.categorie)) s.tasse.categorie = [];
+        if (!(d.schema >= SCHEMA)) {
+          // prima di tradurli se ne tiene una copia così com'erano, per sicurezza
+          try { localStorage.setItem(CHIAVE + '.schema1', grezzo); } catch (e) { /* spazio pieno: si va avanti */ }
+          s.schema = 1; migra(s); s.daRileggere = true;
+        }
         return s;
       }
     } catch (e) { /* sotto */ }
@@ -69,14 +126,16 @@
   function scriviPref() { try { localStorage.setItem(CHIAVE_PREF, JSON.stringify(pref)); } catch (e) { /* non grave */ } }
 
   // ================================================================ formati e date
-  // 1.234,56 € — fatto a mano: Intl in italiano non mette il punto sotto i 10.000 (2400 €)
-  // tondo = euro interi, per i riepiloghi; le righe dei movimenti tengono i centesimi
-  function euro(cent, tondo) {
-    const v = Math.abs(cent) / 100;
-    const [intero, dec] = (tondo ? String(Math.round(v)) : v.toFixed(2)).split('.');
-    const negativo = tondo ? Math.round(v) > 0 && cent < 0 : cent < 0;
-    return (negativo ? '−' : '') + intero.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec ? ',' + dec : '') + ' €';
+  // 1.234,56 € — fatto a mano: Intl in italiano non mette il punto sotto i 10.000 (2400 €).
+  // Sempre al centesimo, anche nei riepiloghi (chiesto da Francesco il 10/11/2026). I conti sono in centesimi interi.
+  function euro(cent) {
+    const c = Math.round(Math.abs(cent));
+    const intero = String(Math.floor(c / 100)), dec = String(c % 100).padStart(2, '0');
+    return (cent < 0 && c > 0 ? '−' : '') + intero.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ',' + dec + ' €';
   }
+  // percentuale al centesimo: 12,35%
+  const percento = (parte, tutto) => (tutto ? Math.round(parte / tutto * 10000) / 100 : 0).toFixed(2).replace('.', ',') + '%';
+  const conSegno = cent => (cent > 0 ? '+' : '') + euro(cent);
   const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
   const GIORNI_BREVI = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'];
   const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
@@ -101,16 +160,9 @@
     const anno = d.getFullYear() !== oggi().getFullYear() ? ' ' + d.getFullYear() : '';
     return maiuscola(GIORNI_BREVI[d.getDay()] + ' ' + d.getDate() + ' ' + MESI[d.getMonth()].slice(0, 3)) + anno;
   }
-  function etichettaTipo(tipo, segno) {
-    if (tipo === 'entrata') return 'Entrata';
-    if (tipo === 'investimento') return segno < 0 ? 'Ritirato dagli investimenti' : 'Investito';
-    return 'Uscita';
-  }
-  function segnoDi(tipo, segno) {
-    if (tipo === 'entrata') return '+';
-    if (tipo === 'uscita') return '−';
-    return segno < 0 ? '↙ ' : '↗ ';
-  }
+  const etichettaTipo = tipo => (tipo === 'entrata' ? 'Entrata' : 'Uscita');
+  const segnoDi = tipo => (tipo === 'entrata' ? '+' : '−');
+  const altroTipo = tipo => (tipo === 'entrata' ? 'uscita' : 'entrata');
   function leggiEuro(s, permettiNegativo) {
     let t = String(s).replace(/[€\s]/g, '').replace('−', '-');
     let segno = 1;
@@ -130,7 +182,7 @@
   const ripiegoDi = tipo => A.ripiego(tipo, stato.categorie);
   const valida = (tipo, nome) => categorie(tipo, true).some(c => c.nome === nome);
   function nomeDaBase(tipo, base) { const c = categorie(tipo, true).find(x => x.base === base); return c ? c.nome : base; }
-  function opzioniAnalisi(extra) { return Object.assign({ oggi: oggi(), imparate: stato.imparate, categorie: stato.categorie }, extra || {}); }
+  function opzioniAnalisi(extra) { return Object.assign({ oggi: oggi(), adesso: new Date(), imparate: stato.imparate, categorie: stato.categorie }, extra || {}); }
 
   // ================================================================ toast
   let timerToast = null;
@@ -147,7 +199,8 @@
   function nascondiToast() { $('toast').hidden = true; }
 
   // ================================================================ foglio dal basso
-  let alChiudereFoglio = null;
+  // Si chiude toccando il velo, col tasto Esc o trascinandolo in giù (dal 10/11/2026), come i fogli dell'iPhone.
+  let alChiudereFoglio = null, timerFoglio = null;
   function apriFoglio(titolo, costruisci, alChiudere) {
     const corpo = $('foglioCorpo');
     corpo.textContent = '';
@@ -158,18 +211,70 @@
     costruisci(corpo);
     alChiudereFoglio = alChiudere || null;
     nascondiToast();
-    $('velo').hidden = false;
-    $('foglio').hidden = false;
-    $('foglio').scrollTop = 0;
+    clearTimeout(timerFoglio);
+    const f = $('foglio'), v = $('velo');
+    const giaAperto = !f.hidden && !f.classList.contains('via');
+    f.classList.remove('via');
+    f.style.transform = ''; v.style.opacity = '';
+    v.hidden = false;
+    f.hidden = false;
+    f.scrollTop = 0;
+    if (!giaAperto) { f.classList.add('entra'); requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove('entra'))); }
   }
-  function chiudiFoglio() {
-    $('velo').hidden = true;
-    $('foglio').hidden = true;
-    const f = alChiudereFoglio;
+  function chiudiFoglio(animato) {
+    const f = $('foglio'), v = $('velo');
+    const cb = alChiudereFoglio;
     alChiudereFoglio = null;
-    if (f) f();
+    clearTimeout(timerFoglio);
+    if (animato && !f.hidden) {
+      f.classList.add('via');
+      f.style.transform = '';
+      v.style.opacity = '0';
+      timerFoglio = setTimeout(() => { f.hidden = true; v.hidden = true; f.classList.remove('via'); v.style.opacity = ''; }, 220);
+    } else {
+      f.hidden = true; v.hidden = true; f.classList.remove('via'); f.style.transform = ''; v.style.opacity = '';
+    }
+    if (cb) cb();
   }
-  const foglioAperto = () => !$('foglio').hidden;
+  const foglioAperto = () => !$('foglio').hidden && !$('foglio').classList.contains('via');
+
+  // trascinare in giù: parte solo se il foglio è già scorso in cima (o dalla maniglia), così lo scorrimento resta normale
+  (function trascinaFoglio() {
+    const f = $('foglio');
+    let y0 = null, dy = 0, t0 = 0, attivo = false, bloccaClic = 0;
+    f.addEventListener('touchstart', e => {
+      if (e.touches.length !== 1 || f.classList.contains('via')) { y0 = null; return; }
+      const daManiglia = !!e.target.closest('.maniglia');
+      if (f.scrollTop > 0 && !daManiglia) { y0 = null; return; }
+      y0 = e.touches[0].clientY; dy = 0; t0 = performance.now(); attivo = false;
+    }, { passive: true });
+    f.addEventListener('touchmove', e => {
+      if (y0 === null) return;
+      dy = e.touches[0].clientY - y0;
+      if (!attivo) {
+        if (dy > 6 && f.scrollTop <= 0) attivo = true;
+        else { if (dy < -6) y0 = null; return; }
+      }
+      e.preventDefault();
+      f.classList.add('trascina');
+      f.style.transform = 'translateY(' + Math.max(0, dy) + 'px)';
+      $('velo').style.opacity = String(Math.max(0.15, 1 - dy / 450));
+    }, { passive: false });
+    const fine = () => {
+      if (y0 === null) return;
+      y0 = null;
+      f.classList.remove('trascina');
+      if (!attivo) return;
+      attivo = false;
+      bloccaClic = performance.now() + 350;   // il dito che si alza non deve «toccare» un bottone
+      const veloce = dy / Math.max(1, performance.now() - t0) > 0.5;
+      if (dy > 120 || (dy > 50 && veloce)) chiudiFoglio(true);
+      else { f.style.transform = ''; $('velo').style.opacity = ''; }
+    };
+    f.addEventListener('touchend', fine);
+    f.addEventListener('touchcancel', fine);
+    f.addEventListener('click', e => { if (performance.now() < bloccaClic) { e.stopPropagation(); e.preventDefault(); } }, true);
+  })();
 
   function el(tag, classe, testo) {
     const e = document.createElement(tag);
@@ -207,42 +312,73 @@
   }
 
   // ---------------------------------------------------------------- scelte riutilizzate
-  const TIPI = [
-    { tipo: 'uscita', segno: 1, nome: 'Uscita', icona: '−' },
-    { tipo: 'entrata', segno: 1, nome: 'Entrata', icona: '+' },
-    { tipo: 'investimento', segno: 1, nome: 'Investito', icona: '↗' },
-    { tipo: 'investimento', segno: -1, nome: 'Ritirato dagli investimenti', icona: '↙' }
-  ];
-  function scegliTipo(corrente, alScegliere) {
-    apriFoglio('Che movimento è?', corpo => {
-      const g = el('div', 'griglia');
-      for (const t of TIPI) {
-        const b = tasto('opzione' + (t.segno < 0 ? ' larga' : ''), t.icona + '  ' + t.nome, () => { chiudiFoglio(); alScegliere(t.tipo, t.segno); });
-        b.setAttribute('aria-pressed', String(t.tipo === corrente.tipo && t.segno === (corrente.segno || 1)));
+  // Dal 10/11/2026 i tipi sono due: toccando l'etichetta si passa dall'uno all'altro, senza foglio.
+  function scegliTipo(corrente, alScegliere) { alScegliere(altroTipo(corrente.tipo)); }
+  // Tenere premuto un bottone (mezzo secondo, senza muovere il dito): per modificare una categoria dalla griglia.
+  function tienePremuto(b, alTenere, alToccare) {
+    let timer = null, x0 = 0, y0 = 0, tenuto = false;
+    const ferma = () => { if (timer) { clearTimeout(timer); timer = null; } };
+    b.addEventListener('touchstart', e => {
+      tenuto = false;
+      const t = e.touches[0]; x0 = t.clientX; y0 = t.clientY;
+      ferma();
+      timer = setTimeout(() => { timer = null; tenuto = true; if (navigator.vibrate) navigator.vibrate(12); alTenere(); }, 520);
+    }, { passive: true });
+    b.addEventListener('touchmove', e => { const t = e.touches[0]; if (Math.hypot(t.clientX - x0, t.clientY - y0) > 10) ferma(); }, { passive: true });
+    b.addEventListener('touchend', ferma);
+    b.addEventListener('touchcancel', ferma);
+    b.addEventListener('contextmenu', e => e.preventDefault());
+    b.addEventListener('click', () => { if (tenuto) { tenuto = false; return; } alToccare(); });
+  }
+
+  // La griglia delle categorie. «✎ Modifica» (o tenere premuta una categoria) apre nome, simbolo ed eliminazione.
+  function scegliCategoria(tipo, corrente, alScegliere, inModifica) {
+    apriFoglio(inModifica ? 'Modifica le categorie' : 'Categoria', corpo => {
+      const torna = modo => (vecchio, nuovo) => scegliCategoria(tipo, corrente === vecchio ? nuovo : corrente, alScegliere, modo);
+      const ang = tasto('tasto-piccolo angolo', inModifica ? 'Fatto' : '✎ Modifica', () => scegliCategoria(tipo, corrente, alScegliere, !inModifica));
+      ang.id = 'modificaCategorie';
+      corpo.appendChild(ang);
+      if (inModifica) corpo.appendChild(el('p', 'nota-su', 'Tocca una categoria per cambiarle nome o simbolo, nasconderla o eliminarla.'));
+      const g = el('div', 'griglia' + (inModifica ? ' in-modifica' : ''));
+      for (const c of categorie(tipo, inModifica)) {
+        const b = el('button', 'opzione' + (c.nascosta ? ' spenta' : ''), c.icona + '  ' + c.nome + (inModifica ? '' : ''));
+        b.type = 'button';
+        if (inModifica) b.appendChild(el('span', 'matita', c.nascosta ? 'nascosta' : '✎'));
+        b.setAttribute('aria-pressed', String(!inModifica && c.nome === corrente));
+        const modifica = () => formCategoria(tipo, c, { alTornare: torna(inModifica) });
+        tienePremuto(b, modifica, () => {
+          if (inModifica) { modifica(); return; }
+          chiudiFoglio(); alScegliere(c.nome);
+        });
         g.appendChild(b);
       }
+      g.appendChild(tasto('opzione larga tratteggiata', '＋  Nuova categoria', () => formCategoria(tipo, null, {
+        alSalvare: inModifica ? null : nome => alScegliere(nome), alTornare: inModifica ? torna(true) : null })));
       corpo.appendChild(g);
-      corpo.appendChild(el('p', 'nota', 'Gli investimenti stanno a parte: non contano come spese, ma li vedi nel totale «Investiti».'));
+      if (!inModifica) corpo.appendChild(el('p', 'nota', 'Quando correggi una categoria, la prossima volta che usi le stesse parole la propongo io. Per cambiarle nome tocca «✎ Modifica» o tienila premuta.'));
     });
   }
-  function scegliCategoria(tipo, corrente, alScegliere) {
-    apriFoglio('Categoria', corpo => {
-      const g = el('div', 'griglia');
-      for (const c of categorie(tipo)) {
-        const b = tasto('opzione', c.icona + '  ' + c.nome, () => { chiudiFoglio(); alScegliere(c.nome); });
-        b.setAttribute('aria-pressed', String(c.nome === corrente));
-        g.appendChild(b);
-      }
-      g.appendChild(tasto('opzione larga tratteggiata', '＋  Nuova categoria', () => nuovaCategoria(tipo, nome => alScegliere(nome))));
-      corpo.appendChild(g);
-      corpo.appendChild(el('p', 'nota', 'Quando correggi una categoria, la prossima volta che usi le stesse parole la propongo io.'));
-    });
-  }
-  function scegliData(corrente, alScegliere) {
+  // «ripeti» (facoltativo): { acceso, alCambiare(bool) } per la spesa ricorrente, che si ripete ogni mese
+  function scegliData(corrente, alScegliere, ripeti) {
     apriFoglio('Quando?', corpo => {
+      if (ripeti) {
+        const seg = el('div', 'segmentato largo');
+        seg.id = 'quandoRipeti';
+        const giorno = daIso(corrente).getDate();
+        [[false, 'Una volta'], [true, '🔁 Ogni mese']].forEach(([v, nome]) => {
+          const s = tasto('', nome, () => { ripeti.alCambiare(v); scegliData(corrente, alScegliere, Object.assign({}, ripeti, { acceso: v })); });
+          s.setAttribute('aria-pressed', String(!!ripeti.acceso === v));
+          seg.appendChild(s);
+        });
+        corpo.appendChild(seg);
+        corpo.appendChild(el('p', 'nota-su', ripeti.acceso
+          ? 'Spesa ricorrente: si segna da sola il ' + giorno + ' di ogni mese (il giorno che scegli qui sotto). La trovi in Menù → Movimenti fissi.'
+          : 'Per le uscite stabili (affitto, abbonamenti, palestra) scegli «Ogni mese»: si segnano da sole.'));
+      }
       const g = el('div', 'griglia');
+      g.style.marginTop = ripeti ? '12px' : '0';
       const base = oggi();
-      [['Oggi', 0], ['Ieri', -1], ['L\'altro ieri', -2]].forEach(([nome, n]) => {
+      [['Oggi', 0], ['Ieri', -1], ['L’altro ieri', -2]].forEach(([nome, n]) => {
         const iso = A.isoDa(new Date(base.getFullYear(), base.getMonth(), base.getDate() + n));
         const b = tasto('opzione', nome, () => { chiudiFoglio(); alScegliere(iso); });
         b.setAttribute('aria-pressed', String(iso === corrente));
@@ -267,7 +403,7 @@
   const campoFrase = $('frase');
   let proposte = [];   // come l'app ha letto ogni pezzo della frase
   let correnti = [];   // proposte + scelte a mano
-  let scelte = [];     // per ogni pezzo: { tipo, segno, categoria, data } scelti toccando i bottoni
+  let scelte = [];     // per ogni pezzo: { tipo, categoria, data, ripeti } scelti toccando i bottoni
 
   function rileggi() {
     const testo = campoFrase.value;
@@ -285,12 +421,13 @@
       const s = scelte[i];
       let r = p;
       if (s.tipo) {
-        r = Object.assign(A.analizza(p.testo, Object.assign({}, opz, { tipo: s.tipo, segno: s.segno })), { testo: p.testo });
+        r = Object.assign(A.analizza(p.testo, Object.assign({}, opz, { tipo: s.tipo })), { testo: p.testo });
         if (!r.certo.data) r.data = p.data;   // la data ereditata dal resto della frase
       }
       r = Object.assign({}, r, { certo: Object.assign({}, r.certo) });
       if (s.categoria && valida(r.tipo, s.categoria)) { r.categoria = s.categoria; r.certo.categoria = true; }
       if (s.data) r.data = s.data;
+      if (s.ripeti !== undefined) r.ripeti = s.ripeti;
       return r;
     });
     disegnaAnteprima();
@@ -299,8 +436,8 @@
   function cambiaTipo(i) {
     const c = correnti[i];
     if (!c) return;
-    scegliTipo(c, (tipo, segno) => {
-      scelte[i].tipo = tipo; scelte[i].segno = segno;
+    scegliTipo(c, tipo => {
+      scelte[i].tipo = tipo;
       if (scelte[i].categoria && !valida(tipo, scelte[i].categoria)) delete scelte[i].categoria;
       rileggi();
     });
@@ -313,7 +450,8 @@
   function cambiaData(i) {
     const c = correnti[i];
     if (!c) return;
-    scegliData(c.data, iso => { scelte[i].data = iso; rileggi(); });
+    scegliData(c.data, iso => { scelte[i].data = iso; rileggi(); },
+      { acceso: c.ripeti, alCambiare: v => { scelte[i].ripeti = v; rileggi(); } });
   }
 
   function disegnaAnteprima() {
@@ -329,13 +467,13 @@
     if (!multi) {
       const c = correnti[0];
       const ct = $('chipTipo');
-      ct.textContent = etichettaTipo(c.tipo, c.segno);
+      ct.textContent = etichettaTipo(c.tipo);
       ct.classList.toggle('dubbio', !c.certo.tipo && !scelte[0].tipo && c.tipo !== 'uscita');
       const cc = $('chipCategoria');
       cc.textContent = iconaDi(c.tipo, c.categoria) + ' ' + c.categoria;
       cc.classList.toggle('dubbio', !c.certo.categoria && !scelte[0].categoria);
-      $('chipData').textContent = etichettaGiorno(c.data);
-      if (c.importo > 0) { imp.textContent = segnoDi(c.tipo, c.segno) + euro(c.importo); imp.classList.remove('manca'); }
+      $('chipData').textContent = etichettaQuando(c);
+      if (c.importo > 0) { imp.textContent = segnoDi(c.tipo) + euro(c.importo); imp.classList.remove('manca'); }
       else { imp.textContent = 'Quanto?'; imp.classList.add('manca'); }
       $('antDescrizione').textContent = c.descrizione;
       $('salva').textContent = 'Salva';
@@ -346,16 +484,16 @@
         const r = el('div', 'ant-voce');
         const su = el('div', 'ant-voce-su');
         su.appendChild(el('span', 'ant-voce-desc', c.descrizione));
-        su.appendChild(el('span', 'ant-voce-importo' + (c.importo > 0 ? '' : ' manca'), c.importo > 0 ? segnoDi(c.tipo, c.segno) + euro(c.importo) : 'Quanto?'));
+        su.appendChild(el('span', 'ant-voce-importo' + (c.importo > 0 ? '' : ' manca'), c.importo > 0 ? segnoDi(c.tipo) + euro(c.importo) : 'Quanto?'));
         r.appendChild(su);
         const chips = el('div', 'chips piccole');
-        const t = tasto('chip', etichettaTipo(c.tipo, c.segno), () => cambiaTipo(i));
+        const t = tasto('chip scambia', etichettaTipo(c.tipo), () => cambiaTipo(i));
         t.classList.toggle('dubbio', !c.certo.tipo && !scelte[i].tipo && c.tipo !== 'uscita');
         const k = tasto('chip', iconaDi(c.tipo, c.categoria) + ' ' + c.categoria, () => cambiaCategoria(i));
         k.classList.toggle('dubbio', !c.certo.categoria && !scelte[i].categoria);
         chips.appendChild(t);
         chips.appendChild(k);
-        chips.appendChild(tasto('chip', etichettaGiorno(c.data), () => cambiaData(i)));
+        chips.appendChild(tasto('chip', etichettaQuando(c), () => cambiaData(i)));
         r.appendChild(chips);
         lista.appendChild(r);
       });
@@ -381,8 +519,10 @@
     campoFrase.style.height = Math.min(campoFrase.scrollHeight + 2, 200) + 'px';
   }
 
-  function impara(descrizione, tipo, segno, categoria) {
-    for (const p of A.paroleSignificative(descrizione)) stato.imparate[p] = { tipo, segno, categoria };
+  const etichettaQuando = c => etichettaGiorno(c.data) + (c.ripeti ? ' · 🔁 ogni mese' : '');
+
+  function impara(descrizione, tipo, categoria) {
+    for (const p of A.paroleSignificative(descrizione)) stato.imparate[p] = { tipo, categoria };
     const chiavi = Object.keys(stato.imparate);   // tetto: le ultime 600 parole
     if (chiavi.length > 600) for (const k of chiavi.slice(0, chiavi.length - 600)) delete stato.imparate[k];
   }
@@ -393,15 +533,20 @@
     const testo = campoFrase.value.trim();
     const nuovi = correnti.map((c, i) => {
       const p = proposte[i];
-      if (p && (p.tipo !== c.tipo || p.segno !== c.segno || p.categoria !== c.categoria)) impara(c.descrizione, c.tipo, c.segno, c.categoria);
+      if (p && (p.tipo !== c.tipo || p.categoria !== c.categoria)) impara(c.descrizione, c.tipo, c.categoria);
       return {
-        id: nuovoId(), data: c.data, tipo: c.tipo,
-        importo: c.tipo === 'investimento' ? c.importo * (c.segno < 0 ? -1 : 1) : c.importo,
+        id: nuovoId(), data: c.data, tipo: c.tipo, importo: c.importo,
         categoria: c.categoria, descrizione: c.descrizione, testo: correnti.length > 1 ? c.testo : testo, creato: adesso
       };
     });
     stato.movimenti.push(...nuovi);
-    if (!scrivi()) { stato.movimenti.splice(stato.movimenti.length - nuovi.length, nuovi.length); return; }
+    // spese ricorrenti: diventano anche movimenti fissi, che si segnano da soli i mesi dopo
+    const fissi = nuovi.filter((m, i) => correnti[i].ripeti).map(creaFisso);
+    if (!scrivi()) {
+      stato.movimenti.splice(stato.movimenti.length - nuovi.length, nuovi.length);
+      stato.ricorrenti = stato.ricorrenti.filter(r => !fissi.includes(r));
+      return;
+    }
     campoFrase.value = '';
     scelte = [];
     rileggi();
@@ -411,10 +556,12 @@
     disegna();
     const ids = new Set(nuovi.map(m => m.id));
     const m0 = nuovi[0];
-    const testoToast = nuovi.length > 1 ? 'Salvati ' + nuovi.length + ' movimenti'
-      : 'Salvato: ' + (m0.descrizione.length > 22 ? m0.descrizione.slice(0, 21) + '…' : m0.descrizione) + ' ' + euro(Math.abs(m0.importo));
+    const testoToast = (nuovi.length > 1 ? 'Salvati ' + nuovi.length + ' movimenti'
+      : 'Salvato: ' + (m0.descrizione.length > 22 ? m0.descrizione.slice(0, 21) + '…' : m0.descrizione) + ' ' + euro(Math.abs(m0.importo)))
+      + (fissi.length ? ' · 🔁 ogni mese' : '');
     mostraToast(testoToast, 'Annulla', () => {
       stato.movimenti = stato.movimenti.filter(x => !ids.has(x.id));
+      stato.ricorrenti = stato.ricorrenti.filter(r => !fissi.includes(r));
       scrivi();
       disegna();
     });
@@ -471,12 +618,10 @@
   }
 
   function totaleFissi() {
-    const t = { uscite: 0, entrate: 0, investimenti: 0 };
+    const t = { uscite: 0, entrate: 0 };
     for (const r of stato.ricorrenti) {
       if (!r.attivo) continue;
-      if (r.tipo === 'uscita') t.uscite += r.importo;
-      else if (r.tipo === 'entrata') t.entrate += r.importo;
-      else t.investimenti += r.importo;
+      if (r.tipo === 'entrata') t.entrate += r.importo; else t.uscite += r.importo;
     }
     return t;
   }
@@ -485,7 +630,7 @@
     apriFoglio('Movimenti fissi', corpo => {
       corpo.appendChild(el('p', '', 'Abbonamenti, PAC, palestra, telefono: li imposti una volta e si segnano da soli il giorno giusto di ogni mese. Se un mese non c\'è, cancella quel movimento: non torna.'));
       const t = totaleFissi();
-      const somma = [t.uscite ? 'uscite ' + euro(t.uscite, true) : '', t.investimenti ? 'investimenti ' + euro(t.investimenti, true) : '', t.entrate ? 'entrate ' + euro(t.entrate, true) : ''].filter(Boolean);
+      const somma = [t.uscite ? 'uscite ' + euro(t.uscite) : '', t.entrate ? 'entrate ' + euro(t.entrate) : ''].filter(Boolean);
       if (somma.length) corpo.appendChild(el('p', 'riassunto', 'Al mese: ' + somma.join(' · ')));
       const lista = el('div', 'elenco-righe');
       const ordinati = stato.ricorrenti.slice().sort((a, b) => a.giorno - b.giorno);
@@ -497,11 +642,11 @@
         testi.appendChild(el('span', 'mov-desc', r.descrizione));
         testi.appendChild(el('span', 'mov-cat', 'il ' + r.giorno + ' di ogni mese · ' + r.categoria + (r.attivo ? '' : ' · in pausa')));
         b.appendChild(testi);
-        b.appendChild(el('span', 'mov-importo ' + r.tipo, segnoDi(r.tipo, r.importo < 0 ? -1 : 1) + euro(Math.abs(r.importo))));
+        b.appendChild(el('span', 'mov-importo ' + r.tipo, segnoDi(r.tipo) + euro(Math.abs(r.importo))));
         b.addEventListener('click', () => apriFisso(r));
         lista.appendChild(b);
       }
-      if (!ordinati.length) lista.appendChild(el('p', 'vuoto', 'Nessuno ancora. Puoi anche aprire un movimento già segnato e toccare «Ripeti ogni mese».'));
+      if (!ordinati.length) lista.appendChild(el('p', 'vuoto', 'Nessuno ancora. Puoi anche scegliere «🔁 Ogni mese» toccando il giorno quando segni una spesa, o aprire un movimento già segnato e toccare «Ripeti ogni mese».'));
       corpo.appendChild(lista);
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-primario', '＋ Aggiungi', () => apriFisso(null)));
@@ -512,8 +657,8 @@
   function apriFisso(esistente) {
     const nuovo = !esistente;
     const ora = chiaveMese(oggi());
-    const b = esistente ? Object.assign({ segno: esistente.importo < 0 ? -1 : 1 }, esistente, { importo: Math.abs(esistente.importo) })
-      : { descrizione: '', importo: 0, tipo: 'uscita', segno: 1, categoria: ripiegoDi('uscita'), giorno: oggi().getDate(), attivo: true };
+    const b = esistente ? Object.assign({}, esistente, { importo: Math.abs(esistente.importo) })
+      : { descrizione: '', importo: 0, tipo: 'uscita', categoria: ripiegoDi('uscita'), giorno: oggi().getDate(), attivo: true };
     let sceltaMano = !nuovo;
     let quando = b.giorno >= oggi().getDate() ? 'questo' : 'prossimo';
     const disegnaForm = () => apriFoglio(nuovo ? 'Nuovo movimento fisso' : 'Movimento fisso', corpo => {
@@ -522,8 +667,8 @@
       inDesc.addEventListener('input', () => {
         if (sceltaMano) return;
         const r = A.analizza(inDesc.value, opzioniAnalisi());
-        b.tipo = r.tipo; b.segno = r.segno; b.categoria = r.categoria;
-        chipT.textContent = etichettaTipo(b.tipo, b.segno);
+        b.tipo = r.tipo; b.categoria = r.categoria;
+        chipT.textContent = etichettaTipo(b.tipo);
         chipC.textContent = iconaDi(b.tipo, b.categoria) + ' ' + b.categoria;
       });
       corpo.appendChild(campo('Che cos\'è', inDesc));
@@ -541,10 +686,10 @@
         const g = parseInt(inGiorno.value, 10);
         if (g >= 1 && g <= 31) b.giorno = g;
       };
-      const chipT = tasto('chip', etichettaTipo(b.tipo, b.segno), () => {
+      const chipT = tasto('chip scambia', etichettaTipo(b.tipo), () => {
         leggi();
-        scegliTipo(b, (tipo, segno) => {
-          sceltaMano = true; b.tipo = tipo; b.segno = segno;
+        scegliTipo(b, tipo => {
+          sceltaMano = true; b.tipo = tipo;
           if (!valida(tipo, b.categoria)) b.categoria = ripiegoDi(tipo);
           disegnaForm();
         });
@@ -584,7 +729,7 @@
         leggi();
         if (!b.descrizione) { mostraToast('Scrivi che cos\'è'); inDesc.focus(); return; }
         if (!(b.importo > 0)) { mostraToast('Importo non valido'); inImp.focus(); return; }
-        const importo = b.tipo === 'investimento' ? b.importo * (b.segno < 0 ? -1 : 1) : b.importo;
+        const importo = b.importo;
         if (nuovo) {
           stato.ricorrenti.push({ id: nuovoId(), descrizione: b.descrizione, importo, tipo: b.tipo, categoria: b.categoria,
             giorno: b.giorno, attivo: true, dal: quando === 'questo' ? ora : meseDopo(ora), fatti: [], creato: new Date().toISOString() });
@@ -606,15 +751,20 @@
     disegnaForm();
   }
 
-  function ripetiOgniMese(m) {
+  // Il movimento m diventa anche un fisso: il suo mese è già «fatto», i successivi si segnano da soli. Non salva.
+  function creaFisso(m) {
     const d = daIso(m.data), ora = chiaveMese(oggi()), suo = chiaveMese(d);
     const r = { id: nuovoId(), descrizione: m.descrizione, importo: m.importo, tipo: m.tipo, categoria: m.categoria,
       giorno: d.getDate(), attivo: true, dal: suo > ora ? suo : ora, fatti: [suo], creato: new Date().toISOString() };
     // se questo mese c'è già un movimento con la stessa descrizione, non lo rifà
     const stesso = x => x.tipo === m.tipo && x.data.slice(0, 7) === ora && A.normalizza(x.descrizione) === A.normalizza(m.descrizione);
-    if (stato.movimenti.some(stesso)) r.fatti.push(ora);
+    if (!r.fatti.includes(ora) && stato.movimenti.some(stesso)) r.fatti.push(ora);
     m.ricorrente = r.id;
     stato.ricorrenti.push(r);
+    return r;
+  }
+  function ripetiOgniMese(m) {
+    const r = creaFisso(m);
     scrivi();
     generaRicorrenti();
     disegna();
@@ -623,7 +773,7 @@
 
   // ================================================================ saldo, tasse e mesi di autonomia
   // Saldo attuale = saldo dichiarato + i movimenti venuti dopo (fino a oggi). Quelli dello stesso giorno contano
-  // solo se segnati dopo aver dichiarato il saldo. Gli investimenti escono dai soldi liquidi, i ritiri rientrano.
+  // solo se segnati dopo aver dichiarato il saldo. Gli investimenti sono uscite: escono dai soldi liquidi, i ritiri rientrano.
   function saldoAttuale() {
     const s = stato.saldo;
     if (!s) return null;
@@ -655,6 +805,10 @@
     return { messi, pagati, fondo: messi - pagati };
   }
 
+  // Gli investimenti sono uscite, ma per i mesi di autonomia non contano: senza entrate si smette di investire.
+  const catInvestimenti = () => nomeDaBase('uscita', A.INVESTIMENTI);
+  const spesaVera = m => m.tipo === 'uscita' && m.categoria !== catInvestimenti();
+
   // Spesa media al mese sugli ultimi 3 mesi interi (non quello in corso). Un mese conta solo se l'app
   // c'era già all'inizio: il primo movimento deve essere entro il 7 di quel mese.
   function speseMedie() {
@@ -665,7 +819,7 @@
       const inizio = new Date(d.getFullYear(), d.getMonth() - k, 1);
       if (primo > A.isoDa(new Date(inizio.getFullYear(), inizio.getMonth(), 7))) break;
       const chiave = chiaveMese(inizio);
-      totali.push(stato.movimenti.filter(m => m.tipo === 'uscita' && m.data.slice(0, 7) === chiave).reduce((a, m) => a + m.importo, 0));
+      totali.push(stato.movimenti.filter(m => spesaVera(m) && m.data.slice(0, 7) === chiave).reduce((a, m) => a + m.importo, 0));
     }
     if (!totali.length) return null;
     return { media: Math.round(totali.reduce((a, b) => a + b, 0) / totali.length), mesi: totali.length };
@@ -674,8 +828,8 @@
   function formatoMesi(x) {
     if (x <= 0) return '0 mesi';
     if (x >= 120) return 'oltre 10 anni';
-    const t = Math.round(x * 10) / 10;
-    return String(t).replace('.', ',') + (t === 1 ? ' mese' : ' mesi');
+    const t = Math.round(x * 100) / 100;
+    return t.toFixed(2).replace('.', ',') + (t === 1 ? ' mese' : ' mesi');
   }
 
   function disegnaAutonomia() {
@@ -694,14 +848,14 @@
     const tasse = ft ? Math.max(0, ft.fondo) : 0;
     const spendibili = sa - tasse;
     const sm = speseMedie();
-    const fissi = totaleFissi().uscite;
+    const fissi = stato.ricorrenti.filter(r => r.attivo && spesaVera(r)).reduce((a, r) => a + r.importo, 0);
     let mesi = null, spiegazione;
     if (sm && sm.media > 0) {
       mesi = spendibili / sm.media;
-      spiegazione = 'senza entrate, con le spese medie ' + (sm.mesi === 1 ? 'dell\'ultimo mese' : 'degli ultimi ' + sm.mesi + ' mesi') + ' (' + euro(sm.media, true) + ' al mese).';
+      spiegazione = 'senza entrate, con le spese medie ' + (sm.mesi === 1 ? 'dell\'ultimo mese' : 'degli ultimi ' + sm.mesi + ' mesi') + ' (' + euro(sm.media) + ' al mese, investimenti esclusi).';
     } else if (fissi > 0) {
       mesi = spendibili / fissi;
-      spiegazione = 'senza entrate, contando solo le spese fisse (' + euro(fissi, true) + ' al mese): il conto vero arriva dopo il primo mese intero.';
+      spiegazione = 'senza entrate, contando solo le spese fisse (' + euro(fissi) + ' al mese, investimenti esclusi): il conto vero arriva dopo il primo mese intero.';
     } else {
       spiegazione = 'Per calcolarli servono le spese di un mese intero, oppure i movimenti fissi.';
     }
@@ -714,13 +868,13 @@
       r.appendChild(el('span', '', valore));
       righe.appendChild(r);
     };
-    riga('Sui conti oggi', euro(sa, true));
+    riga('Sui conti oggi', euro(sa));
     if (ft) {
-      riga('Da tenere per le tasse', tasse ? '−' + euro(tasse, true) : euro(0, true));
-      riga('Spendibili', euro(spendibili, true), true);
+      riga('Da tenere per le tasse', tasse ? '−' + euro(tasse) : euro(0));
+      riga('Spendibili', euro(spendibili), true);
     }
     corpo.appendChild(righe);
-    corpo.appendChild(el('p', 'nota', 'Saldo inserito ' + etichettaGiorno(stato.saldo.data).toLowerCase() + ': ' + euro(stato.saldo.importo, true) + '. Ricontrollalo ogni tanto col conto.'));
+    corpo.appendChild(el('p', 'nota', 'Saldo inserito ' + etichettaGiorno(stato.saldo.data).toLowerCase() + ': ' + euro(stato.saldo.importo) + '. Ricontrollalo ogni tanto col conto.'));
   }
 
   function apriSaldo() {
@@ -785,25 +939,41 @@
   }
 
   // ================================================================ categorie personali
-  const EMOJI = ['🛒', '🍕', '☕', '🍺', '🚗', '🔧', '🏠', '📱', '💊', '🏋️', '⚔️', '⛵', '📚', '🎲', '🎮', '🎵',
-    '✈️', '👕', '💻', '🎁', '🧾', '🏦', '🐶', '👶', '💼', '💶', '↩️', '🏷️', '🌱', '📈', '🪙', '•'];
+  const EMOJI = ['🛒', '🍕', '🍽️', '☕', '🍺', '🍷', '🚆', '🚗', '🛵', '🔧', '⛽', '🏠', '📱', '💊', '🏋️', '⚔️',
+    '⛵', '📚', '🎲', '🎮', '🎵', '🎬', '✈️', '👕', '🧖', '💇', '💻', '🎁', '🧾', '🏦', '🚬', '🍀',
+    '🍫', '🐶', '👶', '💼', '💶', '↩️', '🏷️', '🌱', '🤝', '📈', '💰', '🪙', '🛡️', '❤️', '⭐', '•'];
   let tipoCategorie = 'uscita';
 
+  // l'elenco personale diventa esplicito (serve per rinominare, nascondere, eliminare); le eliminate restano come segnaposto
   function materializza() {
     const nuove = {};
-    for (const tipo of TIPI_DATI) nuove[tipo] = A.elenco(tipo, stato.categorie).map(c => ({ nome: c.nome, icona: c.icona, base: c.base, nascosta: !!c.nascosta }));
+    for (const tipo of TIPI_DATI) {
+      const vecchie = stato.categorie && Array.isArray(stato.categorie[tipo]) ? stato.categorie[tipo] : [];
+      nuove[tipo] = A.elenco(tipo, stato.categorie).map(c => ({ nome: c.nome, icona: c.icona, base: c.base, nascosta: !!c.nascosta }))
+        .concat(vecchie.filter(x => x.eliminata));
+    }
     stato.categorie = nuove;
   }
+  const vivaDi = (tipo, nome) => stato.categorie[tipo].find(x => x.nome === nome && !x.eliminata);
   function pulisciNome(s) { return String(s).replace(/[;\r\n]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 28); }
   function nomeLibero(tipo, nome, tranne) {
     const n = A.normalizza(nome);
     return !categorie(tipo, true).some(c => A.normalizza(c.nome) === n && c.nome !== tranne);
   }
   function usiDi(tipo, nome) { return stato.movimenti.filter(m => m.tipo === tipo && m.categoria === nome).length; }
+  function primoSimbolo(s) {
+    s = String(s || '').trim();
+    if (!s) return '';
+    if (window.Intl && Intl.Segmenter) {
+      const p = new Intl.Segmenter('it', { granularity: 'grapheme' }).segment(s)[Symbol.iterator]().next();
+      return p.value ? p.value.segment : '';
+    }
+    return Array.from(s)[0];
+  }
 
   function rinomina(tipo, vecchio, nuovo, icona) {
     materializza();
-    const e = stato.categorie[tipo].find(x => x.nome === vecchio);
+    const e = vivaDi(tipo, vecchio);
     if (!e) return;
     e.nome = nuovo;
     if (icona) e.icona = icona;
@@ -815,84 +985,131 @@
         if (v.tipo === tipo && v.categoria === vecchio) v.categoria = nuovo;
       }
       if (tipo === 'entrata') stato.tasse.categorie = stato.tasse.categorie.map(c => (c === vecchio ? nuovo : c));
-      if (vista.filtro === vecchio && tipo === 'uscita') vista.filtro = nuovo;
+      if (vista.filtro === vecchio) vista.filtro = nuovo;
       for (const s of scelte) if (s.categoria === vecchio) s.categoria = nuovo;
     }
     scrivi();
   }
   function aggiungiCategoria(tipo, nome, icona) {
     materializza();
-    stato.categorie[tipo].splice(Math.max(0, stato.categorie[tipo].length - 1), 0, { nome, icona: icona || '•', base: null, nascosta: false });
+    const lista = stato.categorie[tipo];
+    const dove = lista.findIndex(x => x.base === A.RIPIEGO[tipo]);   // prima di «Altro»
+    lista.splice(dove >= 0 ? dove : lista.length, 0, { nome, icona: icona || '•', base: null, nascosta: false });
+    scrivi();
+  }
+  // Toglie la categoria: i suoi movimenti e fissi passano nel ripiego («Altro»), le parole imparate si dimenticano.
+  // Una categoria di partenza resta come segnaposto «eliminata», se no tornerebbe alla prossima versione.
+  function eliminaCategoria(tipo, nome) {
+    materializza();
+    const lista = stato.categorie[tipo];
+    const e = vivaDi(tipo, nome);
+    if (!e || e.base === A.RIPIEGO[tipo]) return;
+    const rip = ripiegoDi(tipo);
+    if (e.base) Object.assign(e, { eliminata: true, nascosta: true, nome: '(eliminata) ' + e.base });
+    else lista.splice(lista.indexOf(e), 1);
+    for (const m of stato.movimenti) if (m.tipo === tipo && m.categoria === nome) m.categoria = rip;
+    for (const r of stato.ricorrenti) if (r.tipo === tipo && r.categoria === nome) r.categoria = rip;
+    for (const k of Object.keys(stato.imparate)) {
+      const v = stato.imparate[k];
+      if (v.tipo === tipo && v.categoria === nome) delete stato.imparate[k];
+    }
+    if (tipo === 'entrata') stato.tasse.categorie = stato.tasse.categorie.filter(c => c !== nome);
+    if (vista.filtro === nome) vista.filtro = null;
+    for (const s of scelte) if (s.categoria === nome) delete s.categoria;
     scrivi();
   }
 
-  function formCategoria(tipo, esistente, alFinire) {
+  // Modulo di una categoria: nome, simbolo, nascondere, eliminare.
+  // opz.alSalvare(nome): dopo il salvataggio (chiude il foglio); opz.alTornare(vecchio, nuovo): riapre il foglio di prima.
+  function formCategoria(tipo, esistente, opz) {
+    opz = opz || {};
     let icona = esistente ? esistente.icona : '•';
-    const disegnaForm = () => apriFoglio(esistente ? 'Rinomina categoria' : 'Nuova categoria', corpo => {
+    const fine = (vecchio, nuovo) => {
+      if (opz.alTornare) opz.alTornare(vecchio, nuovo);
+      else { chiudiFoglio(); if (opz.alSalvare && nuovo) opz.alSalvare(nuovo); }
+    };
+    apriFoglio(esistente ? 'Modifica categoria' : 'Nuova categoria', corpo => {
+      if (opz.alTornare) corpo.appendChild(tasto('tasto-piccolo angolo', '‹ Indietro', () => opz.alTornare(null, null)));
       const inp = inputTesto(esistente ? esistente.nome : '');
+      inp.id = 'nomeCategoria';
       inp.maxLength = 28;
       inp.placeholder = 'es. Scherma, Patente nautica';
       corpo.appendChild(campo('Nome', inp));
       corpo.appendChild(el('div', 'titoletto', 'Simbolo'));
       const g = el('div', 'griglia-emoji');
-      for (const e of EMOJI) {
-        const b = tasto('emoji', e, () => { icona = e; g.querySelectorAll('.emoji').forEach(x => x.setAttribute('aria-pressed', String(x === b))); });
-        b.setAttribute('aria-pressed', String(e === icona));
-        g.appendChild(b);
-      }
+      const libero = inputTesto('');
+      const segna = () => g.querySelectorAll('.emoji').forEach(x => x.setAttribute('aria-pressed', String(x.textContent === icona)));
+      const elencoEmoji = EMOJI.includes(icona) ? EMOJI : [icona].concat(EMOJI.slice(0, -1));
+      for (const e of elencoEmoji) g.appendChild(tasto('emoji', e, () => { icona = e; libero.value = ''; segna(); }));
       corpo.appendChild(g);
+      segna();
+      libero.maxLength = 8;
+      libero.placeholder = 'o scrivine una tua, per esempio 🥷';
+      libero.addEventListener('input', () => { const s = primoSimbolo(libero.value); if (s) { icona = s; segna(); } });
+      corpo.appendChild(campo('Un\'altra emoji', libero));
+      const ripiego = esistente && esistente.ripiego;
+      let casNascosta = null;
+      if (esistente && !ripiego) {
+        casNascosta = interruttore('Nascosta: non la propongo più (i movimenti restano)', esistente.nascosta);
+        corpo.appendChild(casNascosta.etichetta);
+      }
       const riga = el('div', 'riga-tasti');
+      if (esistente && !ripiego) riga.appendChild(tasto('tasto-pericolo', 'Elimina', () => {
+        const n = usiDi(tipo, esistente.nome), f = stato.ricorrenti.filter(r => r.tipo === tipo && r.categoria === esistente.nome).length;
+        const rip = ripiegoDi(tipo);
+        const cosa = [n ? n + (n === 1 ? ' movimento passa' : ' movimenti passano') : '', f ? f + (f === 1 ? ' fisso passa' : ' fissi passano') : ''].filter(Boolean).join(' e ');
+        if (cosa && !confirm('Eliminare «' + esistente.nome + '»? ' + cosa + ' in «' + rip + '».')) return;
+        const prima = JSON.stringify(stato);
+        eliminaCategoria(tipo, esistente.nome);
+        disegna(); rileggi();
+        fine(esistente.nome, rip);
+        mostraToast('Eliminata «' + esistente.nome + '»', 'Annulla', () => { stato = JSON.parse(prima); scrivi(); disegna(); rileggi(); });
+      }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
         const nome = pulisciNome(inp.value);
         if (!nome) { mostraToast('Scrivi un nome'); inp.focus(); return; }
         if (!nomeLibero(tipo, nome, esistente && esistente.nome)) { mostraToast('Questo nome c\'è già'); inp.focus(); return; }
-        if (esistente) rinomina(tipo, esistente.nome, nome, icona);
-        else aggiungiCategoria(tipo, nome, icona);
-        chiudiFoglio();
+        if (esistente) {
+          rinomina(tipo, esistente.nome, nome, icona);
+          if (casNascosta) { const e = vivaDi(tipo, nome); if (e) { e.nascosta = casNascosta.casella.checked; scrivi(); } }
+        } else aggiungiCategoria(tipo, nome, icona);
         disegna();
         rileggi();
-        if (alFinire) alFinire(nome);
+        fine(esistente ? esistente.nome : null, nome);
       }));
       corpo.appendChild(riga);
-      setTimeout(() => inp.focus(), 50);
+      if (!esistente) setTimeout(() => inp.focus(), 50);
     });
-    disegnaForm();
   }
-  function nuovaCategoria(tipo, alFinire) { formCategoria(tipo, null, alFinire); }
+  function nuovaCategoria(tipo, alFinire) { formCategoria(tipo, null, { alSalvare: alFinire }); }
 
   function apriCategorie() {
     apriFoglio('Categorie', corpo => {
       const seg = el('div', 'segmentato largo');
-      [['uscita', 'Uscite'], ['entrata', 'Entrate'], ['investimento', 'Investimenti']].forEach(([t, nome]) => {
+      [['uscita', 'Uscite'], ['entrata', 'Entrate']].forEach(([t, nome]) => {
         const b = tasto('', nome, () => { tipoCategorie = t; apriCategorie(); });
         b.setAttribute('aria-pressed', String(tipoCategorie === t));
         seg.appendChild(b);
       });
       corpo.appendChild(seg);
+      corpo.appendChild(el('p', 'nota-su', 'Tocca una categoria per cambiarle nome o simbolo, nasconderla o eliminarla.'));
       const lista = el('div', 'elenco-righe');
       for (const c of categorie(tipoCategorie, true)) {
-        const r = el('div', 'cat-riga' + (c.nascosta ? ' nascosta' : ''));
+        const r = el('button', 'cat-riga' + (c.nascosta ? ' nascosta' : ''));
+        r.type = 'button';
         r.appendChild(el('span', 'cat-icona', c.icona));
         r.appendChild(el('span', 'cat-nome', c.nome + (c.nascosta ? ' · nascosta' : '')));
-        r.appendChild(tasto('tasto-piccolo', 'Rinomina', () => formCategoria(tipoCategorie, c, () => apriCategorie())));
-        if (!c.ripiego) r.appendChild(tasto('tasto-piccolo', c.nascosta ? 'Mostra' : 'Nascondi', () => {
-          materializza();
-          const e = stato.categorie[tipoCategorie].find(x => x.nome === c.nome);
-          if (e) e.nascosta = !c.nascosta;
-          scrivi(); rileggi(); apriCategorie();
-        }));
-        if (!c.base && !usiDi(tipoCategorie, c.nome)) r.appendChild(tasto('tasto-piccolo pericolo', 'Elimina', () => {
-          materializza();
-          stato.categorie[tipoCategorie] = stato.categorie[tipoCategorie].filter(x => x.nome !== c.nome);
-          scrivi(); rileggi(); apriCategorie();
-        }));
+        const n = usiDi(tipoCategorie, c.nome);
+        r.appendChild(el('span', 'cat-usi', n ? String(n) : ''));
+        r.appendChild(el('span', 'cat-freccia', '›'));
+        r.addEventListener('click', () => formCategoria(tipoCategorie, c, { alTornare: () => apriCategorie() }));
         lista.appendChild(r);
       }
       corpo.appendChild(lista);
       const riga = el('div', 'riga-tasti');
-      riga.appendChild(tasto('tasto-primario', '＋ Aggiungi categoria', () => nuovaCategoria(tipoCategorie, () => apriCategorie())));
+      riga.appendChild(tasto('tasto-primario', '＋ Aggiungi categoria', () => formCategoria(tipoCategorie, null, { alTornare: () => apriCategorie() })));
       corpo.appendChild(riga);
-      corpo.appendChild(el('p', 'nota', 'Le categorie nascoste non si propongono più, ma i movimenti vecchi restano dove sono. Rinominando, cambiano anche i movimenti già segnati.'));
+      corpo.appendChild(el('p', 'nota', 'Le categorie nascoste non si propongono più, ma i movimenti vecchi restano dove sono. Rinominando, cambiano anche i movimenti già segnati. Eliminando, i movimenti passano in «Altro».'));
     });
   }
 
@@ -904,14 +1121,13 @@
     return vista.modo === 'anno' ? y === vista.anno : (y === vista.anno && mm - 1 === vista.mese);
   }
   function totali(lista) {
-    const t = { entrate: 0, uscite: 0, investiti: 0, tasse: 0 };
+    const t = { entrate: 0, uscite: 0, tasse: 0 };
     for (const m of lista) {
       if (m.tipo === 'entrata') { t.entrate += m.importo; t.tasse += accantonamento(m); }
-      else if (m.tipo === 'uscita') t.uscite += m.importo;
-      else if (m.tipo === 'investimento') t.investiti += m.importo;
+      else t.uscite += m.importo;
     }
     t.saldo = t.entrate - t.uscite;
-    t.restano = t.saldo - t.investiti - t.tasse;
+    t.restano = t.saldo - t.tasse;
     return t;
   }
   // si può andare avanti fino al mese corrente, o più in là se ci sono movimenti con date future
@@ -933,17 +1149,12 @@
     const lista = stato.movimenti.filter(nelPeriodo);
     const t = totali(lista);
     $('heroEtichetta').textContent = vista.modo === 'anno' ? 'Saldo del ' + vista.anno : 'Saldo di ' + MESI[vista.mese];
-    $('heroValore').textContent = (Math.round(t.saldo / 100) > 0 ? '+' : '') + euro(t.saldo, true);
-    const tolti = [];
-    if (t.investiti > 0) tolti.push(euro(t.investiti, true) + ' investiti');
-    if (t.tasse > 0) tolti.push(euro(t.tasse, true) + ' per le tasse');
+    $('heroValore').textContent = conSegno(t.saldo);
     let sotto = 'Entrate meno uscite.';
-    if (tolti.length) sotto += ' Tolti ' + tolti.join(' e ') + (t.investiti < 0 ? ', più ' + euro(-t.investiti, true) + ' ritirati dagli investimenti' : '') + ', restano ' + euro(t.restano, true) + '.';
-    else if (t.investiti < 0) sotto += ' Più ' + euro(-t.investiti, true) + ' ritirati dagli investimenti: restano ' + euro(t.restano, true) + '.';
+    if (t.tasse > 0) sotto += ' Tolti ' + euro(t.tasse) + ' per le tasse, restano ' + euro(t.restano) + '.';
     $('heroSotto').textContent = sotto;
-    $('totEntrate').textContent = euro(t.entrate, true);
-    $('totUscite').textContent = euro(t.uscite, true);
-    $('totInvestiti').textContent = euro(t.investiti, true);
+    $('totEntrate').textContent = euro(t.entrate);
+    $('totUscite').textContent = euro(t.uscite);
 
     disegnaBarre(lista, t.uscite);
     $('sezMesi').hidden = vista.modo !== 'anno';
@@ -970,12 +1181,12 @@
       const b = el('button', 'barra-riga');
       b.type = 'button';
       b.setAttribute('aria-pressed', String(vista.filtro === nome));
-      const quota = totUscite ? Math.round(cent / totUscite * 100) : 0;
-      b.setAttribute('aria-label', nome + ': ' + euro(cent) + ', ' + quota + '% delle uscite. Tocca per vedere i movimenti.');
+      const quota = percento(cent, totUscite);
+      b.setAttribute('aria-label', nome + ': ' + euro(cent) + ', ' + quota + ' delle uscite. Tocca per vedere i movimenti.');
       const testi = el('div', 'barra-testi');
       testi.appendChild(el('span', 'barra-nome', iconaDi('uscita', nome) + ' ' + nome));
-      const val = el('span', 'barra-valore', euro(cent, true));
-      val.appendChild(el('span', 'barra-quota', quota + '%'));
+      const val = el('span', 'barra-valore', euro(cent));
+      val.appendChild(el('span', 'barra-quota', quota));
       testi.appendChild(val);
       b.appendChild(testi);
       const pista = el('div', 'barra-pista');
@@ -1003,9 +1214,9 @@
       const tr = el('tr', 'cliccabile');
       tr.tabIndex = 0;
       tr.appendChild(el('td', '', maiuscola(MESI[mm])));
-      tr.appendChild(el('td', '', euro(t.entrate, true)));
-      tr.appendChild(el('td', '', euro(t.uscite, true)));
-      tr.appendChild(el('td', '', (Math.round(t.saldo / 100) > 0 ? '+' : '') + euro(t.saldo, true)));
+      tr.appendChild(el('td', '', euro(t.entrate)));
+      tr.appendChild(el('td', '', euro(t.uscite)));
+      tr.appendChild(el('td', '', conSegno(t.saldo)));
       const apri = () => { vista.modo = 'mese'; vista.mese = mm; vista.filtro = null; disegna(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
       tr.addEventListener('click', apri);
       tr.addEventListener('keydown', e => { if (e.key === 'Enter') apri(); });
@@ -1052,14 +1263,14 @@
     b.appendChild(el('span', 'mov-icona', iconaDi(m.tipo, m.categoria)));
     const testi = el('span', 'mov-testi');
     testi.appendChild(el('span', 'mov-desc', m.descrizione));
-    let sotto = m.tipo === 'investimento' ? etichettaTipo(m.tipo, m.importo < 0 ? -1 : 1) + ' · ' + m.categoria : m.categoria;
+    let sotto = m.categoria;
     const acc = accantonamento(m);
     if (acc) sotto += ' · ' + euro(acc) + ' per le tasse';
     if (m.ricorrente) sotto += ' · fisso';
     testi.appendChild(el('span', 'mov-cat', sotto));
     b.appendChild(testi);
-    b.appendChild(el('span', 'mov-importo ' + m.tipo, segnoDi(m.tipo, m.importo < 0 ? -1 : 1) + euro(Math.abs(m.importo))));
-    b.setAttribute('aria-label', m.descrizione + ', ' + sotto + ', ' + etichettaTipo(m.tipo, m.importo < 0 ? -1 : 1) + ' ' + euro(Math.abs(m.importo)) + '. Tocca per modificare.');
+    b.appendChild(el('span', 'mov-importo ' + m.tipo, segnoDi(m.tipo) + euro(Math.abs(m.importo))));
+    b.setAttribute('aria-label', m.descrizione + ', ' + sotto + ', ' + etichettaTipo(m.tipo) + ' ' + euro(Math.abs(m.importo)) + '. Tocca per modificare.');
     b.addEventListener('click', () => modifica(m.id));
     return b;
   }
@@ -1068,8 +1279,9 @@
   function modifica(id) {
     const orig = stato.movimenti.find(m => m.id === id);
     if (!orig) return;
-    const bozza = { tipo: orig.tipo, segno: orig.importo < 0 ? -1 : 1, categoria: orig.categoria, data: orig.data,
-      descrizione: orig.descrizione, importo: Math.abs(orig.importo) };
+    const bozza = { tipo: orig.tipo, categoria: orig.categoria, data: orig.data, descrizione: orig.descrizione,
+      importo: Math.abs(orig.importo), ripeti: false };
+    const fissoDi = () => orig.ricorrente && stato.ricorrenti.find(r => r.id === orig.ricorrente);
     const ridisegna = () => apriFoglio('Modifica movimento', corpo => {
       const inImp = inputTesto(formatoPerCampo(bozza.importo), 'decimal');
       inImp.id = 'modImporto';
@@ -1081,10 +1293,10 @@
         bozza.descrizione = inDesc.value.trim();
       };
       const g = el('div', 'chips');
-      g.appendChild(tasto('chip', etichettaTipo(bozza.tipo, bozza.segno), () => {
+      g.appendChild(tasto('chip scambia', etichettaTipo(bozza.tipo), () => {
         leggiCampi();
-        scegliTipo(bozza, (tipo, segno) => {
-          bozza.tipo = tipo; bozza.segno = segno;
+        scegliTipo(bozza, tipo => {
+          bozza.tipo = tipo;
           if (!valida(tipo, bozza.categoria)) bozza.categoria = ripiegoDi(tipo);
           ridisegna();
         });
@@ -1093,9 +1305,11 @@
         leggiCampi();
         scegliCategoria(bozza.tipo, bozza.categoria, nome => { bozza.categoria = nome; ridisegna(); });
       }));
-      g.appendChild(tasto('chip', etichettaGiorno(bozza.data), () => {
+      g.appendChild(tasto('chip', etichettaQuando(bozza), () => {
         leggiCampi();
-        scegliData(bozza.data, iso => { bozza.data = iso; ridisegna(); });
+        // la spesa ricorrente si sceglie qui solo se non è già un fisso (per quelli c'è il tasto sotto)
+        scegliData(bozza.data, iso => { bozza.data = iso; ridisegna(); },
+          fissoDi() ? null : { acceso: bozza.ripeti, alCambiare: v => { bozza.ripeti = v; } });
       }));
       corpo.appendChild(g);
       corpo.appendChild(campo('Importo in euro', inImp));
@@ -1106,15 +1320,14 @@
       const applica = () => {
         leggiCampi();
         if (!(bozza.importo > 0)) { mostraToast('Importo non valido'); inImp.focus(); return false; }
-        if (bozza.tipo !== orig.tipo || bozza.categoria !== orig.categoria) impara(bozza.descrizione, bozza.tipo, bozza.segno, bozza.categoria);
+        if (bozza.tipo !== orig.tipo || bozza.categoria !== orig.categoria) impara(bozza.descrizione, bozza.tipo, bozza.categoria);
         Object.assign(orig, {
           tipo: bozza.tipo, categoria: bozza.categoria, data: bozza.data, descrizione: bozza.descrizione || bozza.categoria,
-          importo: bozza.tipo === 'investimento' ? bozza.importo * bozza.segno : bozza.importo,
-          modificato: new Date().toISOString()
+          importo: bozza.importo, modificato: new Date().toISOString()
         });
         return true;
       };
-      const fisso = orig.ricorrente && stato.ricorrenti.find(r => r.id === orig.ricorrente);
+      const fisso = fissoDi();
       const rip = tasto('tasto-secondario', fisso ? '🔁 Fisso: il ' + fisso.giorno + ' di ogni mese · Modifica' : '🔁 Ripeti ogni mese', () => {
         if (fisso) { apriFisso(fisso); return; }
         if (!applica()) return;
@@ -1137,6 +1350,7 @@
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
         if (!applica()) return;
+        if (bozza.ripeti && !fissoDi()) { chiudiFoglio(); ripetiOgniMese(orig); return; }   // salva lui
         scrivi();
         chiudiFoglio();
         disegna();
@@ -1148,20 +1362,75 @@
   }
 
   // ================================================================ esporta e importa
-  // Righe leggibili (anche da Claude) + righe «#» con le impostazioni, per ripristinare tutto su un altro telefono.
-  function testoEsportazione() {
-    const righe = stato.movimenti.slice().sort((a, b) => a.data.localeCompare(b.data) || (a.creato || '').localeCompare(b.creato || ''));
+  // Due testi, dal 10/11/2026:
+  //  - «per l'AI»: righe data;tipo;importo;categoria;descrizione;id + righe «#» con le impostazioni.
+  //    È anche la copia di sicurezza: «Importa da testo» la rimette su un telefono nuovo.
+  //  - «da condividere»: un riassunto semplice da leggere (totali, categorie, movimenti giorno per giorno).
+  // Tutti e due per il periodo scelto (da… a…). Senza periodo: tutti i movimenti.
+  const ordinaMov = l => l.slice().sort((a, b) => a.data.localeCompare(b.data) || (a.creato || '').localeCompare(b.creato || ''));
+  const nelTratto = (da, a) => m => (!da || m.data >= da) && (!a || m.data <= a);
+
+  function testoEsportazione(da, a) {
+    const righe = ordinaMov(stato.movimenti.filter(nelTratto(da, a)));
     const pulisci = s => String(s || '').replace(/[;\r\n]+/g, ' ').trim();
     const out = [];
-    out.push('# Conti — esportazione del ' + new Date().toLocaleString('it-IT') + ' — ' + righe.length + ' movimenti — app ' + VERSIONE);
+    out.push('# Conti — esportazione del ' + new Date().toLocaleString('it-IT') + ' — ' + righe.length + ' movimenti' +
+      (da || a ? ' — periodo ' + (da || 'inizio') + ' → ' + (a || 'oggi') : '') + ' — app ' + VERSIONE);
     out.push('data;tipo;importo;categoria;descrizione;id');
     for (const m of righe) out.push([m.data, m.tipo, (m.importo / 100).toFixed(2), pulisci(m.categoria), pulisci(m.descrizione), m.id].join(';'));
+    out.push('#schema ' + SCHEMA);
     out.push('#imparate ' + JSON.stringify(stato.imparate));
     out.push('#fissi ' + JSON.stringify(stato.ricorrenti));
     out.push('#categorie ' + JSON.stringify(stato.categorie));
     out.push('#saldo ' + JSON.stringify(stato.saldo));
     out.push('#tasse ' + JSON.stringify(stato.tasse));
-    out.push('#legami ' + JSON.stringify(Object.fromEntries(stato.movimenti.filter(m => m.ricorrente).map(m => [m.id, m.ricorrente]))));
+    out.push('#legami ' + JSON.stringify(Object.fromEntries(righe.filter(m => m.ricorrente).map(m => [m.id, m.ricorrente]))));
+    return out.join('\n');
+  }
+
+  // «dal 1° al 10 novembre 2026», «dall'8 al 30 novembre», «dal 28 ottobre al 3 novembre 2026»
+  function testoPeriodo(da, a) {
+    const d1 = daIso(da), d2 = daIso(a);
+    const n = d => (d.getDate() === 1 ? '1°' : String(d.getDate()));
+    const dal = d => (d.getDate() === 8 || d.getDate() === 11 ? 'dall\'' : 'dal ') + n(d);
+    const al = d => (d.getDate() === 8 || d.getDate() === 11 ? 'all\'' : 'al ') + n(d);
+    const mese = d => MESI[d.getMonth()];
+    if (da === a) return 'Il ' + n(d1) + ' ' + mese(d1) + ' ' + d1.getFullYear();
+    if (d1.getFullYear() !== d2.getFullYear()) return maiuscola(dal(d1)) + ' ' + mese(d1) + ' ' + d1.getFullYear() + ' ' + al(d2) + ' ' + mese(d2) + ' ' + d2.getFullYear();
+    if (d1.getMonth() === d2.getMonth()) return maiuscola(dal(d1)) + ' ' + al(d2) + ' ' + mese(d2) + ' ' + d2.getFullYear();
+    return maiuscola(dal(d1)) + ' ' + mese(d1) + ' ' + al(d2) + ' ' + mese(d2) + ' ' + d2.getFullYear();
+  }
+
+  function testoLeggibile(da, a) {
+    const righe = ordinaMov(stato.movimenti.filter(nelTratto(da, a)));
+    const primo = da || (righe[0] ? righe[0].data : isoOggi());
+    const ultimo = a || (righe.length ? righe[righe.length - 1].data : isoOggi());
+    const t = totali(righe);
+    const out = [ED.titolo, testoPeriodo(primo, ultimo), ''];
+    if (!righe.length) { out.push('Nessun movimento in questo periodo.'); return out.join('\n'); }
+    out.push('Entrate: +' + euro(t.entrate));
+    out.push('Uscite: −' + euro(t.uscite));
+    out.push('Saldo: ' + conSegno(t.saldo));
+    for (const [tipo, titolo, tot] of [['uscita', 'Uscite per categoria', t.uscite], ['entrata', 'Entrate per categoria', t.entrate]]) {
+      const somme = new Map();
+      for (const m of righe) if (m.tipo === tipo) somme.set(m.categoria, (somme.get(m.categoria) || 0) + m.importo);
+      if (!somme.size) continue;
+      out.push('', titolo);
+      for (const [nome, cent] of [...somme.entries()].sort((x, y) => y[1] - x[1])) {
+        out.push(iconaDi(tipo, nome) + ' ' + nome + ': ' + euro(cent) + ' (' + percento(cent, tot) + ')');
+      }
+    }
+    out.push('', 'Movimenti (' + righe.length + ')');
+    const anni = new Set(righe.map(m => m.data.slice(0, 4))).size > 1;
+    let giorno = null;
+    for (const m of righe) {
+      if (m.data !== giorno) {
+        giorno = m.data;
+        const d = daIso(m.data);
+        out.push('', maiuscola(GIORNI[d.getDay()]) + ' ' + d.getDate() + ' ' + MESI[d.getMonth()] + (anni ? ' ' + d.getFullYear() : ''));
+      }
+      out.push(segnoDi(m.tipo) + euro(m.importo) + ' · ' + m.descrizione + ' (' + m.categoria + ')' + (m.ricorrente ? ' 🔁' : ''));
+    }
     return out.join('\n');
   }
 
@@ -1195,35 +1464,48 @@
     for (const riga of String(testo).split(/\r?\n/)) {
       const r = riga.trim();
       if (!r) continue;
-      const m = r.match(/^#(imparate|fissi|categorie|saldo|tasse|legami) (.*)$/);
+      const m = r.match(/^#(schema|imparate|fissi|categorie|saldo|tasse|legami) (.*)$/);
       if (m) { try { meta[m[1]] = JSON.parse(m[2]); } catch (e) { /* riga rovinata: si ignora */ } continue; }
-      if (r.startsWith('#') || r.startsWith('data;')) continue;
+      // anche l'intestazione con davanti il titolo della condivisione («Conti # Conti — esportazione…»)
+      if (r.startsWith('#') || r.startsWith('data;') || /#\s*Conti — esportazione/.test(r)) continue;
       righe.push(r);
     }
-    // prima le impostazioni: le categorie personali servono per riconoscere quelle dei movimenti
-    if (meta.imparate && typeof meta.imparate === 'object') Object.assign(stato.imparate, meta.imparate);
-    if (meta.categorie && typeof meta.categorie === 'object' && !stato.categorie) stato.categorie = meta.categorie;
+    // prima le impostazioni, tradotte come i dati vecchi se vengono da una versione di prima (vedi migra)
+    const imp = migra({
+      movimenti: [], schema: meta.schema || 1,
+      ricorrenti: Array.isArray(meta.fissi) ? meta.fissi.filter(r => r && r.id) : [],
+      imparate: meta.imparate && typeof meta.imparate === 'object' ? meta.imparate : {},
+      categorie: meta.categorie && typeof meta.categorie === 'object' ? meta.categorie : null,
+      tasse: Object.assign(vuoto().tasse, meta.tasse && typeof meta.tasse === 'object' ? meta.tasse : {})
+    });
+    if (!Array.isArray(imp.tasse.categorie)) imp.tasse.categorie = [];
+    Object.assign(stato.imparate, imp.imparate);
+    if (imp.categorie && !stato.categorie) stato.categorie = imp.categorie;
     if (meta.saldo && !stato.saldo && typeof meta.saldo.importo === 'number') stato.saldo = meta.saldo;
-    if (meta.tasse && !stato.tasse.attiva && typeof meta.tasse === 'object') stato.tasse = Object.assign(vuoto().tasse, meta.tasse);
-    if (Array.isArray(meta.fissi)) {
-      const presenti = new Set(stato.ricorrenti.map(r => r.id));
-      for (const r of meta.fissi) if (r && r.id && !presenti.has(r.id) && tipi.has(r.tipo) && r.importo) stato.ricorrenti.push(r);
-    }
+    if (meta.tasse && !stato.tasse.attiva) stato.tasse = imp.tasse;
+    const presenti = new Set(stato.ricorrenti.map(r => r.id));
+    for (const r of imp.ricorrenti) if (!presenti.has(r.id) && tipi.has(r.tipo) && r.importo) stato.ricorrenti.push(r);
     const legami = meta.legami && typeof meta.legami === 'object' ? meta.legami : {};
     for (const r of righe) {
       const c = r.split(';');
       if (c.length < 5) { esito.scartati++; continue; }
-      const [data, tipo, importo, categoria, descrizione] = c.map(x => x.trim());
+      let [data, tipo, importo, categoria, descrizione] = c.map(x => x.trim());
       let id = (c[5] || '').trim();
-      const n = parseFloat(importo.replace(',', '.'));
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !tipi.has(tipo) || !isFinite(n) || n === 0) { esito.scartati++; continue; }
+      let n = parseFloat(importo.replace(',', '.'));
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !isFinite(n) || n === 0) { esito.scartati++; continue; }
+      // righe delle versioni di prima: investimenti e nomi vecchi
+      if (tipo === 'investimento') {
+        if (n < 0) { tipo = 'entrata'; n = -n; categoria = nomeDaBase('entrata', A.RITIRATO); }
+        else { tipo = 'uscita'; categoria = nomeDaBase('uscita', A.INVESTIMENTI); }
+      } else if (A.RINOMINATE[tipo] && A.RINOMINATE[tipo][categoria]) categoria = nomeDaBase(tipo, A.RINOMINATE[tipo][categoria]);
+      if (!tipi.has(tipo)) { esito.scartati++; continue; }
       if (!id) id = 'imp-' + hash(r);
       if (ids.has(id)) { esito.presenti++; continue; }
       let cat = pulisciNome(categoria) || ripiegoDi(tipo);
       const uguale = categorie(tipo, true).find(x => A.normalizza(x.nome) === A.normalizza(cat));
       if (uguale) cat = uguale.nome;
       else aggiungiCategoria(tipo, cat, '•');
-      const mov = { id, data, tipo, importo: Math.round(n * 100), categoria: cat, descrizione: descrizione || cat, creato: new Date().toISOString(), importato: true };
+      const mov = { id, data, tipo, importo: Math.round(Math.abs(n) * 100), categoria: cat, descrizione: descrizione || cat, creato: new Date().toISOString(), importato: true };
       if (legami[id]) mov.ricorrente = legami[id];
       stato.movimenti.push(mov);
       ids.add(id);
@@ -1234,6 +1516,101 @@
   }
   function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return (h >>> 0).toString(36); }
 
+  // Il foglio «Esporta e condividi»: periodo (da… a…), poi le tre azioni.
+  function apriEsporta(iniziale) {
+    const d = oggi();
+    const tratti = {
+      mese: () => [A.isoDa(new Date(d.getFullYear(), d.getMonth(), 1)), isoOggi()],
+      scorso: () => [A.isoDa(new Date(d.getFullYear(), d.getMonth() - 1, 1)), A.isoDa(new Date(d.getFullYear(), d.getMonth(), 0))],
+      anno: () => [d.getFullYear() + '-01-01', isoOggi()],
+      tutto: () => {
+        const date = stato.movimenti.map(m => m.data).sort();
+        return [date[0] || isoOggi(), date.length && date[date.length - 1] > isoOggi() ? date[date.length - 1] : isoOggi()];
+      }
+    };
+    let scelta = iniziale || 'mese';
+    let [da, a] = tratti[scelta]();
+    apriFoglio('Esporta e condividi', corpo => {
+      corpo.appendChild(el('div', 'titoletto', 'Periodo'));
+      const chips = el('div', 'chips');
+      const voci = [['mese', 'Questo mese'], ['scorso', 'Mese scorso'], ['anno', 'Quest\'anno'], ['tutto', 'Tutto']];
+      const bottoni = voci.map(([k, nome]) => {
+        const b = tasto('chip senza-freccia', nome, () => { scelta = k; [da, a] = tratti[k](); inDa.value = da; inA.value = a; aggiorna(); });
+        b.dataset.periodo = k;
+        chips.appendChild(b);
+        return b;
+      });
+      corpo.appendChild(chips);
+      const date = el('div', 'riga-date');
+      const inDa = el('input'); inDa.type = 'date'; inDa.value = da; inDa.id = 'esportaDa';
+      const inA = el('input'); inA.type = 'date'; inA.value = a; inA.id = 'esportaA';
+      const cambia = () => {
+        if (/^\d{4}-\d{2}-\d{2}$/.test(inDa.value)) da = inDa.value;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(inA.value)) a = inA.value;
+        if (da > a) { const x = da; da = a; a = x; inDa.value = da; inA.value = a; }
+        scelta = 'scelto';
+        aggiorna();
+      };
+      inDa.addEventListener('change', cambia); inA.addEventListener('change', cambia);
+      date.appendChild(campo('Da', inDa));
+      date.appendChild(campo('A', inA));
+      corpo.appendChild(date);
+      const riassunto = el('p', 'riassunto');
+      riassunto.id = 'esportaRiassunto';
+      corpo.appendChild(riassunto);
+      // «Tutto» comprende anche i movimenti fuori dalle date (è la copia di sicurezza)
+      const filtro = () => (scelta === 'tutto' ? [null, null] : [da, a]);
+      const aggiorna = () => {
+        bottoni.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.periodo === scelta)));
+        const [x, y] = filtro();
+        const lista = stato.movimenti.filter(nelTratto(x, y));
+        const t = totali(lista);
+        riassunto.textContent = lista.length ? lista.length + (lista.length === 1 ? ' movimento' : ' movimenti') + ' · entrate ' + euro(t.entrate) + ' · uscite ' + euro(t.uscite)
+          : 'Nessun movimento in questo periodo.';
+        notaAI.textContent = scelta === 'tutto' ? ED.testoCopia : 'Per la copia di sicurezza completa scegli «Tutto».';
+      };
+
+      const azioni = el('div', 'elenco-azioni');
+      azioni.style.marginTop = '12px';
+      const bAI = tasto('azione', '🤖 Copia per l\'AI', async () => {
+        const [x, y] = filtro();
+        const ok = await copiaTesto(testoEsportazione(x, y));
+        if (!ok) { mostraToast('Non sono riuscito a copiare'); return; }
+        if (scelta === 'tutto') segnaBackup();
+        chiudiFoglio(); mostraToast(ED.avvisoCopiato);
+      });
+      bAI.id = 'copiaAI';
+      const notaAI = el('small', '', '');
+      bAI.appendChild(notaAI);
+      azioni.appendChild(bAI);
+      const bLegg = tasto('azione', '📋 Copia da condividere', async () => {
+        const [x, y] = filtro();
+        const ok = await copiaTesto(testoLeggibile(x, y));
+        if (!ok) { mostraToast('Non sono riuscito a copiare'); return; }
+        chiudiFoglio(); mostraToast('Copiato: incollalo in una chat o in una nota');
+      });
+      bLegg.id = 'copiaLeggibile';
+      bLegg.appendChild(el('small', '', 'Un riassunto semplice da leggere: totali, categorie e movimenti giorno per giorno.'));
+      azioni.appendChild(bLegg);
+      if (navigator.share) {
+        const bCond = tasto('azione', '📤 Condividi…', async () => {
+          const [x, y] = filtro();
+          try {
+            await navigator.share({ title: ED.titolo, text: testoLeggibile(x, y) });
+            chiudiFoglio();
+          } catch (e) {
+            if (e && e.name !== 'AbortError') mostraToast('Condivisione non riuscita');
+          }
+        });
+        bCond.id = 'condividi';
+        bCond.appendChild(el('small', '', 'Lo stesso riassunto, da mandare a te stesso o a qualcuno con WhatsApp o Mail, o da salvare in Note.'));
+        azioni.appendChild(bCond);
+      }
+      corpo.appendChild(azioni);
+      aggiorna();
+    });
+  }
+
   function apriMenu() {
     apriFoglio('Menù', corpo => {
       corpo.appendChild(el('div', 'titoletto', 'Sfondo'));
@@ -1241,13 +1618,14 @@
 
       corpo.appendChild(el('div', 'titoletto', 'Impostazioni'));
       const imp = el('div', 'elenco-azioni');
-      const voce = (titolo, sotto, alClic) => { const b = tasto('azione', titolo, alClic); b.appendChild(el('small', '', sotto)); imp.appendChild(b); };
+      const voce = (titolo, sotto, alClic) => { const b = tasto('azione', titolo, alClic); b.appendChild(el('small', '', sotto)); imp.appendChild(b); return b; };
       const tf = totaleFissi(), nf = stato.ricorrenti.length;
-      voce('🔁 Movimenti fissi', nf ? nf + (nf === 1 ? ' impostato' : ' impostati') + (tf.uscite ? ' · uscite ' + euro(tf.uscite, true) + ' al mese' : '') : 'Abbonamenti, PAC, palestra: si segnano da soli ogni mese.', apriFissi);
+      voce('🔁 Movimenti fissi', nf ? nf + (nf === 1 ? ' impostato' : ' impostati') + (tf.uscite ? ' · uscite ' + euro(tf.uscite) + ' al mese' : '') : 'Affitto, abbonamenti, PAC, palestra: si segnano da soli ogni mese.', apriFissi);
       const sa = saldoAttuale();
-      voce('🏦 Saldo sui conti', sa !== null ? 'Oggi ' + euro(sa, true) + ' · tocca per correggerlo' : 'Per sapere quanti mesi reggi senza entrate.', apriSaldo);
+      voce('🏦 Saldo sui conti', sa !== null ? 'Oggi ' + euro(sa) + ' · tocca per correggerlo' : 'Per sapere quanti mesi reggi senza entrate.', apriSaldo);
       voce('🧾 Tasse da accantonare', stato.tasse.attiva ? String(stato.tasse.percentuale).replace('.', ',') + '% di ' + (stato.tasse.categorie.join(', ') || 'nessuna categoria') : 'Spento', apriTasse);
-      voce('🏷️ Categorie', 'Aggiungi, rinomina o nascondi.', apriCategorie);
+      voce('🏷️ Categorie', 'Aggiungi, rinomina, cambia simbolo, nascondi o elimina.', apriCategorie);
+      voce('🎙️ Microfono', descriviVoce(), apriImpostazioniVoce);
       corpo.appendChild(imp);
 
       corpo.appendChild(el('div', 'titoletto', 'I tuoi movimenti'));
@@ -1257,37 +1635,15 @@
       azioni.style.marginTop = '10px';
       corpo.appendChild(azioni);
 
-      const bCopia = tasto('azione', 'Copia tutto come testo', async () => {
-        const ok = await copiaTesto(testoEsportazione());
-        if (ok) { segnaBackup(); chiudiFoglio(); mostraToast(ED.avvisoCopiato); }
-        else mostraToast('Non sono riuscito a copiare');
-      });
-      bCopia.appendChild(el('small', '', ED.testoCopia));
-      azioni.appendChild(bCopia);
+      const bEsp = tasto('azione', '📤 Esporta e condividi', () => apriEsporta('mese'));
+      bEsp.appendChild(el('small', '', 'Scegli il periodo, poi «Copia per l\'AI», «Copia da condividere» o «Condividi».'));
+      azioni.appendChild(bEsp);
 
-      if (navigator.share) {
-        const bCond = tasto('azione', 'Condividi il file', async () => {
-          const testo = testoEsportazione();
-          const nome = 'conti-' + isoOggi() + '.txt';
-          try {
-            const file = new File([testo], nome, { type: 'text/plain' });
-            if (navigator.canShare && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], title: 'Conti' });
-            else await navigator.share({ title: 'Conti', text: testo });
-            segnaBackup();
-            chiudiFoglio();
-          } catch (e) {
-            if (e && e.name !== 'AbortError') mostraToast('Condivisione non riuscita');
-          }
-        });
-        bCond.appendChild(el('small', '', 'Salvalo in File, mandalo a te stesso su WhatsApp o per mail.'));
-        azioni.appendChild(bCond);
-      }
-
-      const bImp = tasto('azione', 'Importa da testo', () => apriImporta());
-      bImp.appendChild(el('small', '', 'Incolla un\'esportazione: i movimenti già presenti non si doppiano.'));
+      const bImp = tasto('azione', '📥 Importa da testo', () => apriImporta());
+      bImp.appendChild(el('small', '', 'Incolla una «Copia per l\'AI»: i movimenti già presenti non si doppiano.'));
       azioni.appendChild(bImp);
 
-      const bZero = tasto('azione', 'Ricomincia da zero', ricomincia);
+      const bZero = tasto('azione', '🧨 Ricomincia da zero', ricomincia);
       bZero.style.color = 'var(--critico)';
       bZero.disabled = !n;
       bZero.appendChild(el('small', '', 'Cancella tutti i movimenti, per esempio quelli di prova. Impostazioni e parole imparate restano.'));
@@ -1297,7 +1653,7 @@
       const crediti = tasto('tasto-secondario', 'Crediti delle foto', apriCrediti);
       crediti.style.marginTop = '12px';
       corpo.appendChild(crediti);
-      const info = el('p', 'nota', 'Versione ' + VERSIONE + (pref.voceScaricata ? ' · riconoscimento vocale scaricato' : '') + '. ');
+      const info = el('p', 'nota', 'Versione ' + VERSIONE + '. ');
       const aggiorna = tasto('tasto-secondario', 'Cerca aggiornamenti', async () => {
         if (!navigator.serviceWorker) return;
         const reg = await navigator.serviceWorker.getRegistration();
@@ -1312,7 +1668,7 @@
 
   function apriImporta() {
     apriFoglio('Importa movimenti', corpo => {
-      corpo.appendChild(el('p', '', 'Incolla qui il testo di un\'esportazione di Conti.'));
+      corpo.appendChild(el('p', '', 'Incolla qui il testo di una «Copia per l\'AI» (anche di una versione vecchia dell\'app).'));
       const ta = el('textarea');
       ta.id = 'testoImporta';
       ta.placeholder = 'data;tipo;importo;categoria;descrizione;id';
@@ -1355,14 +1711,28 @@
     mostraToast(messaggio, 'Annulla', () => { stato.movimenti = stato.movimenti.concat(tolti); scrivi(); disegna(); });
   }
 
+  // Due conferme (la seconda chiesta da Francesco il 10/11/2026), poi qualche secondo per «Annulla».
   function ricomincia() {
     const n = stato.movimenti.length;
     apriFoglio('Ricomincia da zero', corpo => {
       corpo.appendChild(el('p', '', 'Cancello tutti i ' + n + ' movimenti. Restano le impostazioni (movimenti fissi, saldo, categorie, tasse), le parole che l\'app ha imparato e lo sfondo.'));
-      corpo.appendChild(el('p', '', 'Se vuoi tenerne una copia, prima usa «Copia tutto come testo».'));
+      corpo.appendChild(el('p', '', 'Se vuoi tenerne una copia, prima fai «Copia per l\'AI» con «Tutto».'));
+      const copia = tasto('tasto-secondario', '🤖 Prima fai una copia', () => apriEsporta('tutto'));
+      copia.style.marginTop = '12px';
+      corpo.appendChild(copia);
       const riga = el('div', 'riga-tasti');
-      riga.appendChild(tasto('tasto-secondario', 'Annulla', chiudiFoglio));
-      riga.appendChild(tasto('tasto-pericolo', 'Cancella tutto', () => cancella(() => true, 'Cancellati ' + n + ' movimenti')));
+      riga.appendChild(tasto('tasto-secondario', 'Annulla', () => chiudiFoglio(true)));
+      riga.appendChild(tasto('tasto-pericolo', 'Cancella tutto', () => ricominciaConferma(n)));
+      corpo.appendChild(riga);
+    });
+  }
+  function ricominciaConferma(n) {
+    apriFoglio('Sei proprio sicuro?', corpo => {
+      corpo.appendChild(el('p', 'allarme', '🧨 Stai per cancellare ' + n + (n === 1 ? ' movimento' : ' movimenti') + '.'));
+      corpo.appendChild(el('p', '', 'Dopo qualche secondo non si torna più indietro: rimarrebbero solo le copie che hai esportato.'));
+      const riga = el('div', 'riga-tasti colonna');
+      riga.appendChild(tasto('tasto-pericolo pieno', 'Sì, cancella ' + n + (n === 1 ? ' movimento' : ' movimenti'), () => cancella(() => true, 'Cancellati ' + n + ' movimenti')));
+      riga.appendChild(tasto('tasto-secondario', 'No, tienili', () => chiudiFoglio(true)));
       corpo.appendChild(riga);
     });
   }
@@ -1456,25 +1826,61 @@
   fetch('sfondi/sfondi.json').then(r => r.json()).then(l => { if (Array.isArray(l)) { sfondi = l; applicaSfondo(); } }).catch(() => {});
 
   // ================================================================ microfono (Whisper dentro il telefono, voce.js)
+  // Rifatto il 10/11/2026. Un tocco: ascolta (si vede il tempo e l'onda della voce); secondo tocco: basta.
+  // Si ferma anche da solo dopo 2 s di silenzio. Due modelli: «Preciso» (250 MB, consigliato) e «Veloce» (78 MB).
+  // Il modello scelto si carica appena si apre l'app, in un worker: al tocco è già pronto.
   let statoVoce = 'fermo';   // fermo | scarico | ascolto | trascrivo
-  let ascoltoInCorso = null;
+  let ascoltoInCorso = null, timerVoce = null, inizioFase = 0;
   const bottoneVoce = $('microfono');
+  const onda = [];
+
+  const scaricati = () => Object.assign({ veloce: !!pref.voceScaricata }, pref.voceScaricati || {});
+  function modelloVoce() {
+    const s = scaricati();
+    if (pref.voceModello && s[pref.voceModello]) return pref.voceModello;
+    return null;
+  }
+  const secondi = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
+  function descriviVoce() {
+    const m = modelloVoce();
+    if (!m) return 'Da scaricare una volta sola: poi funziona anche senza rete.';
+    const t = (pref.voceTempi || []).slice(-1)[0];
+    return V.MODELLI[m].nome + (t ? ' · ultima trascrizione ' + secondi(t) : '') + (V.isolato ? ' · più motori insieme' : '');
+  }
 
   function mostraStatoVoce(testo, livello) {
     $('statoVoce').hidden = !testo;
     $('statoVoceTesto').textContent = testo || '';
-    const barra = $('livelloVoce');
-    barra.parentElement.hidden = livello === undefined;
-    barra.style.transform = 'scaleX(' + Math.max(0, Math.min(1, livello || 0)) + ')';
+    const o = $('ondaVoce');
+    o.hidden = livello === undefined;
+    if (livello === undefined) return;
+    onda.push(livello);
+    while (onda.length > 24) onda.shift();
+    if (o.children.length !== 24) { o.textContent = ''; for (let i = 0; i < 24; i++) o.appendChild(el('span')); }
+    const pad = 24 - onda.length;
+    Array.from(o.children).forEach((s, i) => { const v = i < pad ? 0 : onda[i - pad]; s.style.transform = 'scaleY(' + Math.max(0.08, v).toFixed(3) + ')'; });
+  }
+  function fase(nome, testo) {
+    statoVoce = nome;
+    inizioFase = performance.now();
+    clearInterval(timerVoce);
+    bottoneVoce.classList.toggle('ascolta', nome === 'ascolto');
+    bottoneVoce.classList.toggle('lavora', nome === 'scarico' || nome === 'trascrivo');
+    bottoneVoce.setAttribute('aria-label', nome === 'ascolto' ? 'Basta, ho finito' : 'Detta a voce');
+    document.body.classList.toggle('in-ascolto', nome === 'ascolto');
+    if (nome === 'trascrivo') {
+      const scrivi = () => mostraStatoVoce('✍️ Trascrivo… ' + secondi(performance.now() - inizioFase));
+      scrivi();
+      timerVoce = setInterval(scrivi, 200);
+    } else if (testo !== undefined) mostraStatoVoce(testo);
   }
   function fineVoce() {
-    statoVoce = 'fermo';
+    fase('fermo');
     ascoltoInCorso = null;
-    bottoneVoce.classList.remove('ascolta', 'lavora');
-    bottoneVoce.setAttribute('aria-label', 'Detta a voce');
+    onda.length = 0;
     mostraStatoVoce('');
   }
-  // parole che Francesco usa di più: aiutano Whisper a scriverle giuste («Gino», «Fineco»…)
+  // parole che Francesco usa di più: aiutano Whisper a scriverle giuste («Fineco», nomi di posti…)
   function paroleFrequenti() {
     const conta = new Map();
     for (const m of stato.movimenti.slice(-80)) for (const p of A.paroleSignificative(m.descrizione)) conta.set(p, (conta.get(p) || 0) + 1);
@@ -1499,28 +1905,118 @@
     });
   }
 
+  // I due modelli, come bottoni: quello in uso è segnato, quelli da scaricare dicono quanto pesano.
+  function sceltaModelli(corpo, alScegliere) {
+    const g = el('div', 'elenco-azioni');
+    const s = scaricati(), attuale = modelloVoce();
+    const testi = {
+      preciso: 'Sbaglia molto meno numeri e parole («43,20», «eToro»). Ci mette qualche secondo in più. Consigliato.',
+      veloce: 'Risponde prima, ma sbaglia più spesso («milleottocento» → 1880).'
+    };
+    for (const k of ['preciso', 'veloce']) {
+      const M = V.MODELLI[k];
+      const b = tasto('azione scelta-modello', (k === 'preciso' ? '🎯 ' : '⚡ ') + M.nome + (s[k] ? (attuale === k ? ' · in uso' : ' · scaricato') : ' · ' + M.mb + ' MB da scaricare'), () => alScegliere(k));
+      b.dataset.modello = k;
+      b.setAttribute('aria-pressed', String(attuale === k));
+      b.appendChild(el('small', '', testi[k]));
+      g.appendChild(b);
+    }
+    corpo.appendChild(g);
+  }
+  function usaModello(k) {
+    if (!scaricati()[k]) { scaricaVoce(k); return; }
+    pref.voceModello = k;
+    scriviPref();
+    chiudiFoglio();
+    preparaVoce();
+    mostraToast('Microfono: ' + V.MODELLI[k].nome + '. Tocca 🎙️ e parla');
+  }
+
   function chiediScaricamento() {
-    apriFoglio('Microfono', corpo => {
-      corpo.appendChild(el('p', '', 'Per capire la voce, l\'app scarica una volta sola il riconoscimento vocale: circa ' + V.PESO_MB + ' MB, meglio col Wi-Fi.'));
+    const vecchio = scaricati().veloce && !pref.voceModello;
+    apriFoglio(vecchio ? 'Microfono nuovo' : 'Microfono', corpo => {
+      corpo.appendChild(el('p', '', vecchio
+        ? 'Il microfono è rifatto: adesso c\'è anche il riconoscimento «Preciso», che sbaglia molto meno. Si scarica una volta sola, meglio col Wi-Fi.'
+        : 'Per capire la voce, l\'app scarica una volta sola il riconoscimento vocale, meglio col Wi-Fi.'));
       corpo.appendChild(el('p', '', 'Poi funziona anche senza rete, e la tua voce non esce mai dal telefono: la trascrizione la fa il telefono stesso.'));
+      sceltaModelli(corpo, usaModello);
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-secondario', 'Usa la tastiera', () => guidaDettatura('')));
-      riga.appendChild(tasto('tasto-primario', 'Scarica', scaricaVoce));
       corpo.appendChild(riga);
     });
   }
-  async function scaricaVoce() {
+
+  function apriImpostazioniVoce() {
+    apriFoglio('Microfono', corpo => {
+      corpo.appendChild(el('p', '', 'Tocca 🎙️, parla, poi tocca ■ (o fai una pausa di 2 secondi). Il riconoscimento gira dentro il telefono: la voce non esce mai.'));
+      sceltaModelli(corpo, usaModello);
+      const tempi = (pref.voceTempi || []).slice(-5);
+      const righe = el('div', 'aut-righe');
+      const riga = (nome, valore) => { const r = el('div', 'aut-riga'); r.appendChild(el('span', '', nome)); r.appendChild(el('span', '', valore)); righe.appendChild(r); };
+      riga('Ultime trascrizioni', tempi.length ? tempi.map(secondi).join(' · ') : 'nessuna ancora');
+      riga('Motori insieme', V.isolato ? 'sì: ' + (navigator.hardwareConcurrency || '?') + ' core' : 'no, uno solo');
+      corpo.appendChild(righe);
+      const s = scaricati(), attuale = modelloVoce();
+      const altro = attuale === 'preciso' ? 'veloce' : attuale === 'veloce' ? 'preciso' : null;
+      if (altro && s[altro]) {
+        const b = tasto('tasto-secondario', 'Libera spazio: cancella «' + V.MODELLI[altro].nome + '» (' + V.MODELLI[altro].mb + ' MB)', async () => {
+          await V.cancellaModello(altro).catch(() => 0);
+          pref.voceScaricati = Object.assign({}, scaricati(), { [altro]: false });
+          if (altro === 'veloce') pref.voceScaricata = false;
+          scriviPref();
+          apriImpostazioniVoce();
+          mostraToast('Cancellato «' + V.MODELLI[altro].nome + '»');
+        });
+        b.style.marginTop = '14px';
+        corpo.appendChild(b);
+      }
+      const r2 = el('div', 'riga-tasti');
+      r2.appendChild(tasto('tasto-secondario', 'Dettare con la tastiera', () => guidaDettatura('')));
+      corpo.appendChild(r2);
+    });
+  }
+
+  // Se l'app si chiude da sola mentre il modello «Preciso» lavora (memoria finita), la volta dopo si torna a «Veloce».
+  function segnaLavoroVoce(chiave) { pref.voceInCorso = chiave ? { modello: chiave, quando: Date.now() } : null; scriviPref(); }
+  (function controllaCaduta() {
+    const c = pref.voceInCorso;
+    if (!c) return;
+    pref.voceInCorso = null;
+    if (c.modello === 'preciso' && Date.now() - c.quando < 120000 && scaricati().veloce) {
+      pref.voceModello = 'veloce';
+      setTimeout(() => mostraToast('«Preciso» ha fatto chiudere l\'app: uso «Veloce». Menù → Microfono per riprovare'), 800);
+    }
+    scriviPref();
+  })();
+  document.addEventListener('visibilitychange', () => { if (document.hidden && pref.voceInCorso) segnaLavoroVoce(null); });
+  // una ricarica normale (aggiornamento dell'app) non è una caduta
+  window.addEventListener('pagehide', () => { if (pref.voceInCorso) segnaLavoroVoce(null); });
+
+  // carica il modello scelto in sottofondo, così al primo tocco è già pronto
+  function preparaVoce() {
+    const k = modelloVoce();
+    if (!k || !V || !V.disponibile || V.caricato(k)) return;
+    segnaLavoroVoce(k);
+    V.prepara(k).then(() => segnaLavoroVoce(null), () => segnaLavoroVoce(null));
+  }
+
+  async function scaricaVoce(k) {
     chiudiFoglio();
-    statoVoce = 'scarico';
-    bottoneVoce.classList.add('lavora');
-    mostraStatoVoce('Scarico il riconoscimento vocale… 0%', 0);
+    const M = V.MODELLI[k];
+    fase('scarico');
+    mostraStatoVoce('Scarico «' + M.nome + '» (' + M.mb + ' MB)… 0%', 0);
     try {
-      await V.caricaModello(p => { if (statoVoce === 'scarico') mostraStatoVoce('Scarico il riconoscimento vocale… ' + Math.round(p * 100) + '%', p); });
-      pref.voceScaricata = true;
+      segnaLavoroVoce(k);
+      await V.prepara(k, p => { if (statoVoce === 'scarico') { onda.length = 0; mostraStatoVoce('Scarico «' + M.nome + '» (' + M.mb + ' MB)… ' + Math.round(p * 100) + '%', p); } });
+      segnaLavoroVoce(null);
+      pref.voceScaricati = Object.assign({}, scaricati(), { [k]: true });
+      if (k === 'veloce') pref.voceScaricata = true;
+      pref.voceModello = k;
       scriviPref();
       fineVoce();
-      mostraToast('Pronto: tocca il microfono e parla');
+      mostraToast('Pronto: tocca 🎙️ e parla');
     } catch (e) {
+      segnaLavoroVoce(null);
       fineVoce();
       mostraToast('Scaricamento non riuscito: controlla la rete e riprova');
     }
@@ -1528,7 +2024,7 @@
 
   function erroreMicrofono(e) {
     if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
-      guidaDettatura('Il permesso del microfono è negato. Sull\'iPhone: Impostazioni → Safari → Microfono → «Chiedi» o «Consenti», poi riapri Conti. Intanto puoi dettare con la tastiera:');
+      guidaDettatura('Il permesso del microfono è negato. Sull\'iPhone: Impostazioni → Safari → Microfono → «Chiedi» o «Consenti», poi riapri l\'app. Intanto puoi dettare con la tastiera:');
     } else {
       mostraToast('Microfono non disponibile' + (e && e.message ? ': ' + e.message.slice(0, 50) : ''));
     }
@@ -1538,52 +2034,56 @@
     if (statoVoce === 'ascolto') { if (ascoltoInCorso) ascoltoInCorso.ferma(); return; }
     if (statoVoce !== 'fermo') return;
     if (!V || !V.disponibile) { guidaDettatura('Questo telefono non lascia usare il microfono all\'app.'); return; }
-    if (!pref.voceScaricata) { chiediScaricamento(); return; }
+    const chiave = modelloVoce();
+    if (!chiave) { chiediScaricamento(); return; }
     let a;
     try {
       // dentro il tocco: sull'iPhone l'audio si apre solo da un gesto
       a = V.ascolta({
-        alVia: () => { if (statoVoce === 'ascolto') mostraStatoVoce('Ti ascolto… parla, poi fai una pausa', 0); },
-        alLivello: l => { if (statoVoce === 'ascolto') $('livelloVoce').style.transform = 'scaleX(' + l + ')'; }
+        alVia: () => { if (statoVoce === 'ascolto') inizioFase = performance.now(); },
+        alLivello: (l, parlato, t) => {
+          if (statoVoce !== 'ascolto') return;
+          const tempo = Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+          mostraStatoVoce((parlato ? '🔴 ' : '🎙️ ') + tempo + (parlato ? ' · tocca ■ quando hai finito' : ' · parla pure'), l);
+        }
       });
     } catch (e) { erroreMicrofono(e); return; }
-    statoVoce = 'ascolto';
     ascoltoInCorso = a;
-    bottoneVoce.classList.add('ascolta');
-    bottoneVoce.setAttribute('aria-label', 'Smetti di ascoltare');
-    mostraStatoVoce('Apro il microfono…', 0);
-    // intanto si carica il modello (dalla memoria del telefono: qualche secondo)
-    const modello = V.caricaModello(p => { if (statoVoce === 'trascrivo') mostraStatoVoce('Riscarico il riconoscimento vocale… ' + Math.round(p * 100) + '%'); })
-      .then(() => null, e => e);
+    fase('ascolto');
+    onda.length = 0;
+    mostraStatoVoce('🎙️ Apro il microfono…', 0);
+    // intanto il modello si carica nel worker (se non era già pronto)
+    segnaLavoroVoce(chiave);
+    const modello = V.prepara(chiave).then(() => null, e => e);
     let ris;
     try { ris = await a.finito; }
-    catch (e) { fineVoce(); erroreMicrofono(e); return; }
+    catch (e) { segnaLavoroVoce(null); fineVoce(); erroreMicrofono(e); return; }
     ascoltoInCorso = null;
-    bottoneVoce.classList.remove('ascolta');
-    if (!ris.parlato) { fineVoce(); mostraToast('Non ho sentito niente: riprova'); return; }
-    statoVoce = 'trascrivo';
-    bottoneVoce.classList.add('lavora');
-    mostraStatoVoce('Trascrivo…');
+    if (!ris.parlato) { segnaLavoroVoce(null); fineVoce(); if (!ris.annullato) mostraToast('Non ho sentito niente: riprova, un po\' più vicino'); return; }
+    fase('trascrivo');
     try {
       const errore = await modello;
       if (errore) throw errore;
-      const testo = await V.trascrivi(ris.audio, paroleFrequenti());
-      if (!testo) mostraToast('Non ho capito: riprova, un po\' più vicino');
+      const r = await V.trascrivi(chiave, ris.audio, paroleFrequenti());
+      pref.voceTempi = (pref.voceTempi || []).concat(r.ms).slice(-10);
+      if (!r.testo) mostraToast('Non ho capito: riprova, un po\' più vicino');
       else {
         const prima = campoFrase.value.trim();
-        campoFrase.value = prima ? prima.replace(/[,.\s]+$/, '') + ', ' + testo : testo;
+        campoFrase.value = prima ? prima.replace(/[,.\s]+$/, '') + ', ' + r.testo : r.testo;
         rileggi();
       }
     } catch (e) {
       mostraToast('Trascrizione non riuscita: ' + (e && e.message ? e.message.slice(0, 60) : 'errore'));
     }
+    segnaLavoroVoce(null);
     fineVoce();
   }
   bottoneVoce.addEventListener('click', microfono);
+  setTimeout(preparaVoce, 1200);
 
   // ================================================================ eventi generali
   $('apriMenu').addEventListener('click', apriMenu);
-  $('bannerEsporta').addEventListener('click', apriMenu);
+  $('bannerEsporta').addEventListener('click', () => apriEsporta('tutto'));
   $('modSaldo').addEventListener('click', apriSaldo);
   $('velo').addEventListener('click', chiudiFoglio);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(); });
@@ -1616,6 +2116,30 @@
     applicaSfondo();
   });
 
+  // Dopo la traduzione dei dati vecchi (10/11/2026): i movimenti finiti in «Altro» si rileggono con le
+  // categorie nuove («Tabacchi 13,30» era in Altro perché la categoria non c'era). Solo quelli in «Altro».
+  if (stato.daRileggere) {
+    delete stato.daRileggere;
+    for (const m of stato.movimenti) {
+      if (m.categoria !== ripiegoDi(m.tipo) || !m.descrizione) continue;
+      const r = A.analizza(m.descrizione + ' 1', opzioniAnalisi({ tipo: m.tipo }));
+      if (r.certo.categoria && r.categoria !== m.categoria) m.categoria = r.categoria;
+    }
+    materializza();
+    scrivi();
+  }
+
+  // il nome dell'app: l'ultima parola grande, il resto sopra («Che Conti» / «Devastanti»)
+  (function titolo() {
+    const parole = String(ED.titolo).trim().split(/\s+/);
+    const h = $('titoloApp');
+    h.textContent = '';
+    if (parole.length > 1) h.appendChild(el('span', 'titolo-su', parole.slice(0, -1).join(' ')));
+    h.appendChild(el('span', 'titolo-giu', parole[parole.length - 1]));
+    h.setAttribute('aria-label', ED.titolo);
+    document.title = ED.titolo;
+  })();
+
   generaRicorrenti();
   rileggi();
   disegna();
@@ -1637,8 +2161,8 @@
 
   // per le prove automatiche
   window.__conti = {
-    versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, importaTesto,
-    generaRicorrenti, saldoAttuale, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, materializza,
-    statoVoce: () => statoVoce
+    versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, testoLeggibile, importaTesto,
+    generaRicorrenti, saldoAttuale, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
+    materializza, migra, apriEsporta, statoVoce: () => statoVoce
   };
 })();

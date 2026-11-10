@@ -7,50 +7,62 @@
 
   // ---------------------------------------------------------------- categorie
   // Parole chiave generiche: il codice è pubblico, qui non vanno nomi di persone o clienti.
+  // Dal 10/11/2026 i tipi sono solo due: gli investimenti sono un'uscita («Investimenti»)
+  // e quello che torna dagli investimenti è un'entrata («Ritirato dagli investimenti»).
+  const PAROLE_INVESTIMENTI = ['pac', 'piano di accumulo', 'etf', 'azioni', 's&p', 'nasdaq', 'msci', 'cripto', 'crypto',
+    'bitcoin', 'btc', 'eth', 'ethereum', 'solana', 'usdt', 'binance', 'ledger', 'blofin', 'bybit', 'etoro', 'certificato',
+    'certificati', 'cash collect', 'autocall', 'investito', 'investiti', 'investimento', 'investimenti', 'obbligazioni', 'btp'];
   const CATEGORIE = {
     uscita: [
       { nome: 'Spesa', icona: '🛒', parole: ['spesa', 'supermercato', 'esselunga', 'coop', 'conad', 'lidl', 'eurospin', 'despar', 'interspar', 'carrefour', 'aldi', 'penny', 'famila', 'alimentari', 'panificio', 'fornaio', 'macelleria', 'pescheria', 'frutta', 'verdura', 'mercato'] },
-      { nome: 'Ristoranti e bar', icona: '🍕', parole: ['pizza', 'pizzeria', 'ristorante', 'trattoria', 'osteria', 'bacaro', 'bar', 'caffe', 'cappuccino', 'brioche', 'cornetto', 'colazione', 'aperitivo', 'spritz', 'birra', 'cena', 'pranzo', 'sushi', 'kebab', 'mcdonald', 'burger', 'hamburger', 'gelato', 'pasticceria', 'paninoteca', 'panino', 'piadina', 'tramezzino', 'cicchetti', 'vino', 'cocktail', 'pub', 'glovo', 'deliveroo', 'just eat', 'justeat', 'cibo', 'asporto'] },
-      { nome: 'Trasporti', icona: '🚗', parole: ['benzina', 'carburante', 'diesel', 'gasolio', 'pieno', 'autostrada', 'pedaggio', 'telepass', 'treno', 'trenitalia', 'italo', 'biglietto', 'bus', 'autobus', 'actv', 'vaporetto', 'tram', 'metro', 'taxi', 'uber', 'parcheggio', 'sosta', 'monopattino'] },
-      { nome: 'Auto e moto', icona: '🔧', parole: ['meccanico', 'tagliando', 'gomme', 'pneumatici', 'revisione', 'bollo auto', 'carrozziere', 'autolavaggio', 'assicurazione auto', 'rca', 'officina'] },
-      { nome: 'Casa e bollette', icona: '🏠', parole: ['bolletta', 'luce', 'gas', 'enel', 'hera', 'veritas', 'acqua', 'internet', 'fibra', 'wifi', 'affitto', 'condominio', 'tari', 'casa', 'ikea', 'brico', 'mobili', 'elettrodomestico', 'pulizie', 'detersivi', 'ferramenta'] },
-      { nome: 'Telefono e abbonamenti', icona: '📱', parole: ['ricarica', 'telefono', 'tim', 'vodafone', 'wind', 'iliad', 'ho mobile', 'fastweb', 'netflix', 'spotify', 'disney', 'prime video', 'amazon prime', 'dazn', 'now tv', 'sky', 'icloud', 'apple one', 'youtube premium', 'claude', 'chatgpt', 'abbonamento'] },
+      // «bar» da solo va in Svago; in giornata (prima delle 18, oggi, senza «sera») va in Cibo: vedi barDiGiorno()
+      { nome: 'Cibo', icona: '🍕', parole: ['cibo', 'pizza', 'pizzeria', 'ristorante', 'trattoria', 'osteria', 'caffe', 'cappuccino', 'brioche', 'cornetto', 'colazione', 'merenda', 'spuntino', 'cena', 'pranzo', 'sushi', 'kebab', 'poke', 'ramen', 'mcdonald', 'mcdonalds', 'mc', 'burger', 'hamburger', 'gelato', 'pasticceria', 'paninoteca', 'panino', 'piadina', 'tramezzino', 'toast', 'focaccia', 'rosticceria', 'tavola calda', 'cicchetti', 'glovo', 'deliveroo', 'just eat', 'justeat', 'asporto'] },
+      { nome: 'Trasporti', icona: '🚆', parole: ['benzina', 'carburante', 'diesel', 'gasolio', 'pieno', 'autostrada', 'pedaggio', 'telepass', 'treno', 'trenitalia', 'italo', 'biglietto', 'bus', 'autobus', 'actv', 'vaporetto', 'tram', 'metro', 'taxi', 'uber', 'parcheggio', 'sosta', 'monopattino'] },
+      { nome: 'Motori', icona: '🔧', parole: ['motori', 'moto', 'meccanico', 'tagliando', 'gomme', 'pneumatici', 'revisione', 'bollo auto', 'bollo moto', 'carrozziere', 'autolavaggio', 'assicurazione auto', 'assicurazione moto', 'rca', 'officina', 'casco'] },
+      { nome: 'Casa', icona: '🏠', parole: ['casa', 'bolletta', 'luce', 'gas', 'enel', 'hera', 'veritas', 'acqua', 'internet', 'fibra', 'wifi', 'affitto', 'condominio', 'tari', 'manutenzione', 'idraulico', 'elettricista', 'ikea', 'brico', 'mobili', 'elettrodomestico', 'pulizie', 'detersivi', 'ferramenta'] },
+      { nome: 'Abbonamenti', icona: '📱', parole: ['abbonamento', 'abbonamenti', 'ricarica', 'telefono', 'tim', 'vodafone', 'wind', 'iliad', 'ho mobile', 'fastweb', 'netflix', 'spotify', 'disney', 'prime video', 'amazon prime', 'dazn', 'now tv', 'sky', 'icloud', 'apple one', 'youtube premium', 'claude', 'chatgpt'] },
       { nome: 'Salute', icona: '💊', parole: ['farmacia', 'medicine', 'medicina', 'farmaco', 'medico', 'mediche', 'dottore', 'dentista', 'visita', 'analisi', 'esami del sangue', 'ticket', 'ottico', 'occhiali', 'lenti', 'fisioterapista', 'osteopata', 'psicologo'] },
-      { nome: 'Sport e palestra', icona: '🏋️', parole: ['palestra', 'scherma', 'piscina', 'calcetto', 'tennis', 'padel', 'yoga', 'integratori', 'proteine', 'creatina', 'whey', 'sport', 'allenamento', 'personal trainer', 'decathlon'] },
+      { nome: 'Attività fisica', icona: '🏋️', parole: ['palestra', 'scherma', 'piscina', 'nuoto', 'calcetto', 'tennis', 'padel', 'yoga', 'integratori', 'proteine', 'creatina', 'whey', 'sport', 'allenamento', 'personal trainer', 'decathlon', 'attivita fisica'] },
       { nome: 'Formazione', icona: '📚', parole: ['corso', 'patente', 'libro', 'scuola', 'esame', 'lezione', 'formazione', 'udemy', 'master', 'universita'] },
-      { nome: 'Svago', icona: '🎲', parole: ['cinema', 'concerto', 'teatro', 'museo', 'mostra', 'videogioco', 'gioco', 'steam', 'playstation', 'ps5', 'xbox', 'nintendo', 'dadi', 'fumetti', 'discoteca', 'serata', 'evento', 'bowling', 'escape room'] },
+      { nome: 'Svago', icona: '🎲', parole: ['svago', 'bar', 'aperitivo', 'spritz', 'birra', 'cocktail', 'drink', 'pub', 'vino', 'bacaro', 'amaro', 'shot', 'locale', 'speakeasy', 'speak easy', 'club', 'discoteca', 'serata', 'cinema', 'concerto', 'teatro', 'museo', 'mostra', 'videogioco', 'gioco', 'steam', 'playstation', 'ps5', 'xbox', 'nintendo', 'dadi', 'fumetti', 'evento', 'bowling', 'escape room'] },
       { nome: 'Viaggi', icona: '✈️', parole: ['viaggio', 'volo', 'aereo', 'ryanair', 'easyjet', 'wizz', 'hotel', 'albergo', 'airbnb', 'booking', 'ostello', 'vacanza', 'traghetto', 'noleggio'] },
-      { nome: 'Vestiti e cura', icona: '👕', parole: ['vestiti', 'abbigliamento', 'scarpe', 'maglia', 'maglietta', 'felpa', 'pantaloni', 'jeans', 'giacca', 'camicia', 'zara', 'nike', 'adidas', 'barbiere', 'parrucchiere', 'profumo', 'cosmetici', 'lavanderia'] },
+      { nome: 'Vestiti', icona: '👕', parole: ['vestiti', 'vestito', 'abbigliamento', 'scarpe', 'maglia', 'maglietta', 'felpa', 'pantaloni', 'jeans', 'giacca', 'camicia', 'calze', 'intimo', 'zara', 'h&m', 'nike', 'adidas', 'lavanderia'] },
+      { nome: 'Benessere', icona: '🧖', parole: ['benessere', 'sauna', 'spa', 'terme', 'massaggio', 'massaggi', 'bagno turco', 'centro benessere', 'estetista', 'manicure', 'pedicure', 'barbiere', 'parrucchiere', 'profumo', 'cosmetici', 'crema'] },
       { nome: 'Tecnologia', icona: '💻', parole: ['amazon', 'computer', 'pc', 'portatile', 'iphone', 'cuffie', 'airpods', 'cavo', 'caricatore', 'mediaworld', 'unieuro', 'elettronica', 'software', 'stampante'] },
       { nome: 'Regali', icona: '🎁', parole: ['regalo', 'regali', 'compleanno', 'fiori'] },
       { nome: 'Tasse e commercialista', icona: '🧾', parole: ['tasse', 'tassa', 'f24', 'inps', 'irpef', 'imposta', 'imposte', 'commercialista', 'marca da bollo', 'multa', 'agenzia delle entrate', 'bollo'] },
       { nome: 'Banca e commissioni', icona: '🏦', parole: ['commissione bancaria', 'commissioni bancarie', 'canone', 'conto corrente', 'prelievo', 'bancomat', 'bonifico'] },
+      { nome: 'Tabacchi', icona: '🚬', parole: ['tabacchi', 'tabaccheria', 'tabacco', 'sigarette', 'sigaretta', 'cartine', 'filtri', 'accendino', 'iqos', 'heets', 'terea', 'svapo'] },
+      { nome: 'Inserti vegetali', icona: '🍀', parole: ['inserti vegetali', 'inserti', 'inserto'] },
+      { nome: 'Cioccolato', icona: '🍫', parole: ['cioccolato', 'cioccolata', 'cioccolatino', 'cioccolatini', 'nutella', 'kinder', 'lindt', 'milka', 'ferrero', 'venchi', 'ritter'] },
+      { nome: 'Investimenti', icona: '📈', parole: PAROLE_INVESTIMENTI },
       { nome: 'Altro', icona: '•', parole: [] }
     ],
     entrata: [
       { nome: 'Provvigioni', icona: '💼', parole: ['provvigione', 'commissione', 'fattura', 'cliente'] },
       { nome: 'Stipendio', icona: '💶', parole: ['stipendio', 'busta paga'] },
       { nome: 'Rimborsi', icona: '↩️', parole: ['rimborso', 'rimborsato', 'restituito', 'ridato', 'reso'] },
-      { nome: 'Regali ricevuti', icona: '🎁', parole: ['regalo', 'regalato', 'regalati'] },
+      { nome: 'Donazioni', icona: '🎁', parole: ['donazione', 'donazioni', 'donato', 'donati', 'regalo', 'regalato', 'regalati'] },
       { nome: 'Vendite', icona: '🏷️', parole: ['venduto', 'vendita', 'vinted', 'subito', 'ebay'] },
-      { nome: 'Rendite', icona: '🌱', parole: ['dividendo', 'cedola', 'interessi', 'staking'] },
+      { nome: 'Favori', icona: '🌱', parole: ['favore', 'favori'] },
+      { nome: 'Ritirato dagli investimenti', icona: '💰', parole: ['dividendo', 'dividendi', 'cedola', 'cedole', 'interessi', 'staking', 'disinvestito', 'disinvestiti', 'riscattato'] },
       { nome: 'Altre entrate', icona: '•', parole: [] }
-    ],
-    investimento: [
-      { nome: 'PAC', icona: '📈', parole: ['pac', 'piano di accumulo'] },
-      { nome: 'ETF e azioni', icona: '📊', parole: ['etf', 'azioni', 'azione', 'titolo', 's&p', 'nasdaq', 'msci'] },
-      { nome: 'Cripto', icona: '🪙', parole: ['cripto', 'crypto', 'bitcoin', 'btc', 'eth', 'ethereum', 'solana', 'usdt', 'binance', 'ledger', 'blofin', 'bybit'] },
-      { nome: 'Certificati', icona: '📜', parole: ['certificato', 'cash collect', 'autocall'] },
-      { nome: 'Altri investimenti', icona: '•', parole: [] }
     ]
   };
 
-  const RIPIEGO = { uscita: 'Altro', entrata: 'Altre entrate', investimento: 'Altri investimenti' };
+  const RIPIEGO = { uscita: 'Altro', entrata: 'Altre entrate' };
+  const INVESTIMENTI = 'Investimenti', RITIRATO = 'Ritirato dagli investimenti';
+
+  // Nomi cambiati il 10/11/2026: i dati vecchi (salvati o importati) si traducono con queste tabelle.
+  const RINOMINATE = {
+    uscita: { 'Ristoranti e bar': 'Cibo', 'Auto e moto': 'Motori', 'Casa e bollette': 'Casa', 'Telefono e abbonamenti': 'Abbonamenti',
+      'Sport e palestra': 'Attività fisica', 'Vestiti e cura': 'Vestiti' },
+    entrata: { 'Regali ricevuti': 'Donazioni', 'Rendite': 'Favori' }
+  };
+  const ICONE_CAMBIATE = { uscita: { Trasporti: ['🚗', '🚆'] } };
 
   // ------------------------------------------------------- parole che decidono il tipo
-  const INVESTE = ['pac', 'etf', 'investito', 'investiti', 'investimento', 'investimenti', 'investire', 'investo',
-    'cripto', 'crypto', 'bitcoin', 'btc', 'ethereum', 'eth', 'solana', 'usdt', 'binance', 'ledger', 'blofin', 'bybit',
-    'etoro', 'certificato', 'certificati', 'azioni', 'nasdaq', 's&p', 'msci', 'cash collect', 'autocall', 'piano di accumulo'];
+  const INVESTE = PAROLE_INVESTIMENTI.concat(['investire', 'investo']);
   const RITIRA = ['venduto', 'venduti', 'vendita', 'prelevato', 'prelevati', 'ritirato', 'ritirati', 'disinvestito',
     'disinvestiti', 'riscattato', 'rientrato', 'rientrati', 'incassato', 'incassati', 'tornati', 'scaduto', 'rimborsato'];
   const RENDITA = ['dividendo', 'dividendi', 'cedola', 'cedole', 'interessi', 'staking'];
@@ -303,9 +315,11 @@
   }
 
   // ---------------------------------------------------------------- categorie personali
-  // personali = { uscita: [{ nome, icona, base, nascosta }], ... } nell'ordine scelto da Francesco.
+  // personali = { uscita: [{ nome, icona, base, nascosta, eliminata }], ... } nell'ordine scelto da Francesco.
   // «base» è la categoria di partenza da cui prende le parole chiave (null per quelle nuove).
-  // Le categorie di partenza che mancano dall'elenco personale (aggiunte in versioni future) vanno in coda.
+  // «eliminata» tiene il posto di una categoria di partenza tolta, così non ricompare.
+  // Le categorie di partenza che mancano dall'elenco personale (aggiunte in versioni nuove) si infilano
+  // subito dopo quella che le precede nell'elenco di partenza: «Benessere» dopo «Vestiti», ecc.
   function elenco(tipo, personali) {
     const base = CATEGORIE[tipo] || [];
     const segna = c => Object.assign({}, c, { base: c.nome, nascosta: false, ripiego: c.nome === RIPIEGO[tipo] });
@@ -315,17 +329,28 @@
       const b = base.find(c => c.nome === p.base);
       const eRipiego = !!b && b.nome === RIPIEGO[tipo];
       return { nome: p.nome, icona: p.icona || (b ? b.icona : '•'), parole: b ? b.parole : [], base: b ? b.nome : null,
-        nascosta: !!p.nascosta && !eRipiego, ripiego: eRipiego };
+        nascosta: !!p.nascosta && !eRipiego, eliminata: !!p.eliminata && !eRipiego, ripiego: eRipiego };
     });
-    for (const c of base) if (!mie.some(p => p.base === c.nome)) lista.push(segna(c));
-    return lista;
+    base.forEach((c, i) => {
+      if (lista.some(p => p.base === c.nome)) return;
+      let dove = -1;
+      for (let k = i - 1; k >= 0 && dove < 0; k--) dove = lista.findIndex(p => p.base === base[k].nome);
+      lista.splice(dove + 1, 0, segna(c));
+    });
+    return lista.filter(c => !c.eliminata);
   }
   function ripiego(tipo, personali) {
     const c = elenco(tipo, personali).find(x => x.ripiego);
     return c ? c.nome : RIPIEGO[tipo];
   }
+  // il nome (anche rinominato da Francesco) della categoria di partenza «base», se c'è ed è visibile
+  function perBase(tipo, base, personali) {
+    const c = elenco(tipo, personali).find(x => x.base === base && !x.nascosta);
+    return c ? c.nome : null;
+  }
 
   // ---------------------------------------------------------------- tipo e categoria
+  // Restituisce { nome, parola }: la categoria e la parola chiave che l'ha decisa.
   function categoriaPer(tipo, spaziato, personali) {
     const lista = elenco(tipo, personali).filter(c => !c.nascosta);
     for (const storte of [false, true]) {
@@ -338,11 +363,31 @@
           const nome = normalizza(c.nome);
           if (spaziato.includes(' ' + nome + ' ')) peso = Math.max(peso, 100 + nome.length);
         }
-        if (peso && (!migliore || peso > migliore.peso)) migliore = { nome: c.nome, peso };
+        if (peso && (!migliore || peso > migliore.peso)) migliore = { nome: c.nome, base: c.base, peso, parola: hit };
       }
-      if (migliore) return migliore.nome;
+      if (migliore) return migliore;
     }
     return null;
+  }
+
+  // «bar» da solo: di sera è svago, in giornata (oggi, prima delle 18) è una cosa semplice e va in Cibo.
+  const SERA = ['sera', 'stasera', 'serata', 'notte', 'stanotte', 'aperitivo', 'dopocena'];
+  function barDiGiorno(spaziato, dataIso, adesso) {
+    if (trova(spaziato, SERA)) return false;
+    const ora = adesso.getHours();
+    return dataIso === isoDa(adesso) && ora >= 5 && ora < 18;
+  }
+
+  // «ogni mese», «al mese», «mensile», «tutti i mesi»: il movimento si ripete ogni mese
+  function leggiRipeti(tok) {
+    for (let i = 0; i < tok.length; i++) {
+      const a = tok[i].norm, b = tok[i + 1] && tok[i + 1].norm, c = tok[i + 2] && tok[i + 2].norm;
+      if (tok[i].usato) continue;
+      if ((a === 'ogni' || a === 'al') && b === 'mese') { tok[i].usato = tok[i + 1].usato = true; return true; }
+      if (a === 'tutti' && b === 'i' && c === 'mesi') { tok[i].usato = tok[i + 1].usato = tok[i + 2].usato = true; return true; }
+      if (a === 'mensile' || a === 'mensili' || a === 'mensilmente') { tok[i].usato = true; return true; }
+    }
+    return false;
   }
 
   function paroleSignificative(descrizione) {
@@ -353,14 +398,15 @@
   function esiste(tipo, nome, personali) { return elenco(tipo, personali).some(c => c.nome === nome && !c.nascosta); }
 
   /**
-   * analizza(testo, { oggi: Date, imparate: {parola: {tipo, categoria}}, tipo, segno })
-   * tipo/segno forzano il tipo (quando lo sceglie Francesco dal bottone).
+   * analizza(testo, { oggi: Date, adesso: Date, imparate: {parola: {tipo, categoria}}, categorie, tipo })
+   * tipo forza il tipo (quando lo sceglie Francesco dal bottone). adesso (con l'ora) serve al «bar».
    */
   function analizza(testo, opz) {
     opz = opz || {};
-    const oggi = aMezzanotte(opz.oggi || new Date());
+    const adesso = opz.adesso || opz.oggi || new Date();
+    const oggi = aMezzanotte(opz.oggi || adesso);
     const tok = tokenizza(testo);
-    const risultato = { tipo: 'uscita', segno: 1, importo: null, categoria: null, data: isoDa(oggi), descrizione: '',
+    const risultato = { tipo: 'uscita', importo: null, categoria: null, data: isoDa(oggi), descrizione: '', ripeti: false,
       certo: { tipo: false, categoria: false, importo: false, data: false } };
     if (!tok.length) return risultato;
 
@@ -373,6 +419,7 @@
 
     const data = leggiData(tok, oggi, contaNumeriLiberi);
     if (data) { risultato.data = isoDa(data); risultato.certo.data = true; }
+    risultato.ripeti = leggiRipeti(tok);
 
     let imp = leggiImporto(tok);
     // «Pizzadodici euro»: la trascrizione a volte incolla il numero alla parola prima. Solo come ultima
@@ -396,17 +443,16 @@
 
     const spaziato = ' ' + tok.map(t => t.norm.replace(/[^a-z0-9&']/g, '')).join(' ') + ' ';
 
-    // tipo
-    let tipo = 'uscita', segno = 1, certo = false;
+    // tipo. Gli investimenti sono uscite in «Investimenti»; venduti, ritirati, dividendi sono entrate in «Ritirato dagli investimenti».
+    let tipo = 'uscita', certo = false, forzata = null;
     const primo = tok[0].orig.trim();
-    if (opz.tipo) { tipo = opz.tipo; segno = opz.segno || 1; certo = true; }
+    const investe = trova(spaziato, INVESTE);
+    if (investe) forzata = trova(spaziato, RENDITA) || trova(spaziato, RITIRA) ? RITIRATO : INVESTIMENTI;
+    if (opz.tipo) { tipo = opz.tipo; certo = true; }
     else if (primo.startsWith('+') || (imp && imp.esplicito === 1)) { tipo = 'entrata'; certo = true; }
     else if (primo.startsWith('-') || primo.startsWith('−') || (imp && imp.esplicito === -1)) { tipo = 'uscita'; certo = true; }
-    else if (trova(spaziato, INVESTE)) {
-      certo = true;
-      if (trova(spaziato, RENDITA)) tipo = 'entrata';
-      else { tipo = 'investimento'; if (trova(spaziato, RITIRA)) segno = -1; }
-    } else if (trova(spaziato, ENTRA) || trova(spaziato, ['provvigione', 'provvigioni', 'stipendio'], true)) {
+    else if (investe) { certo = true; tipo = forzata === RITIRATO ? 'entrata' : 'uscita'; }
+    else if (trova(spaziato, ENTRA) || trova(spaziato, ['provvigione', 'provvigioni', 'stipendio'], true)) {
       const soloCommissione = !trova(spaziato, ENTRA.filter(p => !p.startsWith('commission')));
       if (soloCommissione && trova(spaziato, BANCA)) { tipo = 'uscita'; }
       else tipo = 'entrata';
@@ -421,23 +467,32 @@
     descrizione = descrizione.replace(/\s+([,.])/g, '$1');
     if (descrizione) descrizione = descrizione[0].toUpperCase() + descrizione.slice(1);
 
-    // categoria: prima le parole imparate dalle correzioni, poi il dizionario
+    // categoria: prima le parole imparate dalle correzioni, poi gli investimenti, poi il dizionario
     let categoria = null, catCerta = false;
     const imparate = opz.imparate || {};
     for (const p of paroleSignificative(descrizione)) {
       const regola = imparate[p];
       if (!regola) continue;
-      if (!certo && esiste(regola.tipo, regola.categoria, opz.categorie)) { tipo = regola.tipo; segno = regola.segno || 1; }
+      if (!certo && esiste(regola.tipo, regola.categoria, opz.categorie)) tipo = regola.tipo;
       if (regola.tipo === tipo && esiste(tipo, regola.categoria, opz.categorie)) { categoria = regola.categoria; catCerta = true; break; }
+    }
+    if (!categoria && investe) {
+      const c = perBase(tipo, tipo === 'entrata' ? RITIRATO : INVESTIMENTI, opz.categorie);
+      if (c) { categoria = c; catCerta = true; }
     }
     if (!categoria) {
       const c = categoriaPer(tipo, spaziato, opz.categorie);
-      if (c) { categoria = c; catCerta = true; }
+      if (c) {
+        categoria = c.nome; catCerta = true;
+        if (c.base === 'Svago' && c.parola === 'bar' && barDiGiorno(spaziato, risultato.data, adesso)) {
+          const cibo = perBase('uscita', 'Cibo', opz.categorie);
+          if (cibo) categoria = cibo;
+        }
+      }
     }
     if (!categoria) categoria = ripiego(tipo, opz.categorie);
 
     risultato.tipo = tipo;
-    risultato.segno = tipo === 'investimento' ? segno : 1;
     risultato.categoria = categoria;
     risultato.descrizione = descrizione || categoria;
     risultato.certo.tipo = certo;
@@ -497,5 +552,6 @@
     return risultati;
   }
 
-  globale.Analizza = { analizza, analizzaFrasi, dividi, CATEGORIE, RIPIEGO, elenco, ripiego, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
+  globale.Analizza = { analizza, analizzaFrasi, dividi, CATEGORIE, RIPIEGO, RINOMINATE, ICONE_CAMBIATE, INVESTIMENTI, RITIRATO,
+    elenco, ripiego, perBase, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
 })(typeof window !== 'undefined' ? window : globalThis);

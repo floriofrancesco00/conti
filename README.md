@@ -1,4 +1,4 @@
-# Conti
+# Che Conti Devastanti
 
 App per segnare entrate e uscite dal telefono, a frase dettata («pizza 12 ieri»).
 Funziona senza rete e i movimenti restano sul telefono di chi la usa (localStorage):

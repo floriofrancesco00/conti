@@ -3,7 +3,7 @@
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
 importScripts('edizione.js');
 const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
-const VERSIONE = '2026.11.07-2046';
+const VERSIONE = '2026.11.10-1235';
 const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
@@ -12,6 +12,7 @@ const FILE = [
   './stile.css',
   './analizza.js',
   './voce.js',
+  './voce-lavoro.js',
   './app.js',
   './manifest.webmanifest',
   './icone/icona-180.png',
@@ -52,6 +53,18 @@ self.addEventListener('activate', evento => {
 const VOCE_CACHE = PREFISSO + 'voce-1';
 const VOCE_HOST = 'cdn.jsdelivr.net';
 
+// Intestazioni che rendono la pagina «isolata» (crossOriginIsolated): così il riconoscimento vocale può usare più
+// thread insieme, 2,5-3 volte più veloce sul PC (10/11/2026). GitHub Pages non le manda: le aggiunge il service worker
+// a tutto quello che serve dal suo sito. Se il telefono le ignora non si rompe niente: si resta a un thread.
+function isolata(risposta) {
+  if (!risposta || risposta.type === 'opaque' || risposta.type === 'opaqueredirect' || !risposta.status) return risposta;
+  const h = new Headers(risposta.headers);
+  h.set('Cross-Origin-Opener-Policy', 'same-origin');
+  h.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  h.set('Cross-Origin-Resource-Policy', 'same-origin');
+  return new Response(risposta.body, { status: risposta.status, statusText: risposta.statusText, headers: h });
+}
+
 self.addEventListener('fetch', evento => {
   const richiesta = evento.request;
   if (richiesta.method !== 'GET') return;
@@ -64,15 +77,15 @@ self.addEventListener('fetch', evento => {
   if (indirizzo.origin !== self.location.origin) return;
   evento.respondWith(
     caches.match(richiesta, { ignoreSearch: true }).then(trovata => {
-      if (trovata) return trovata;
+      if (trovata) return isolata(trovata);
       return fetch(richiesta).then(risposta => {
         // uno sfondo non ancora in memoria: lo si tiene per la prossima volta senza rete
         if (risposta.ok && new URL(richiesta.url).pathname.includes('/sfondi/')) {
           const copia = risposta.clone();
           caches.open(SFONDI_CACHE).then(c => c.put(richiesta, copia));
         }
-        return risposta;
-      }).catch(() => richiesta.mode === 'navigate' ? caches.match('./', { ignoreSearch: true }) : Response.error());
+        return isolata(risposta);
+      }).catch(() => richiesta.mode === 'navigate' ? caches.match('./', { ignoreSearch: true }).then(isolata) : Response.error());
     })
   );
 });

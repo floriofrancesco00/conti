@@ -69,6 +69,16 @@ h1, h2, h3, p { margin: 0; }
   max-width: 640px; margin: 0 auto;
 }
 .testata h1 { font-size: 34px; font-weight: 750; letter-spacing: -0.02em; color: #fff; text-shadow: 0 1px 12px rgba(0, 0, 0, 0.45); line-height: 1.1; }
+/* il nome dell'app: «Che Conti» sopra, «Devastanti» grande e infuocato (10/11/2026) */
+.titolo-app { display: flex; flex-direction: column; }
+.titolo-su { font-size: 21px; font-weight: 700; letter-spacing: 0.01em; color: rgba(255, 255, 255, 0.95); line-height: 1.05; }
+.titolo-giu {
+  font-size: 40px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.02; font-style: italic; padding-right: 6px;
+  background: linear-gradient(100deg, #ffe259 0%, #ffa03a 35%, #ff4d6d 70%, #ff2fb9 100%);
+  -webkit-background-clip: text; background-clip: text; color: transparent; -webkit-text-fill-color: transparent;
+  text-shadow: none; filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 14px rgba(255, 90, 60, 0.35));
+}
+.titolo-app .titolo-giu:only-child { font-size: 34px; font-style: normal; background: none; color: #fff; -webkit-text-fill-color: #fff; filter: drop-shadow(0 1px 10px rgba(0, 0, 0, 0.45)); }
 .oggi { font-size: 15px; font-weight: 600; color: rgba(255, 255, 255, 0.92); text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5); margin-top: 2px; }
 .sfondo-nome { font-size: 12px; color: rgba(255, 255, 255, 0.75); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); margin-top: 2px; }
 
@@ -142,6 +152,9 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .chip.piccolo { min-height: 32px; font-size: 14px; }
 .chip.piccolo::after { content: "✕"; font-size: 12px; }
 .chip.dubbio { border-style: dashed; border-color: var(--testo-tenue); }
+.chip.scambia::after { content: "⇄"; font-size: 13px; }
+.chip.senza-freccia::after { content: none; }
+.chip[aria-pressed="true"] { border-color: var(--accento); box-shadow: inset 0 0 0 1px var(--accento); font-weight: 600; }
 .chip:active { filter: brightness(0.95); }
 
 .anteprima-riga { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
@@ -182,15 +195,16 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 /* ---------------------------------------------------------------- riepilogo */
 .riepilogo { margin-top: 14px; }
 .hero-etichetta { font-size: 15px; color: var(--testo-2); }
-.hero { font-size: 48px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; margin-top: 2px; overflow-wrap: anywhere; }
+.hero { font-size: 44px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.1; margin-top: 2px; overflow-wrap: anywhere; }
 .hero-sotto { font-size: 14px; color: var(--testo-2); margin-top: 4px; }
-.tessere { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.tessere { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 14px; }
 .tessera {
   background: var(--tessera); border-radius: 14px; padding: 10px 12px;
   display: flex; flex-direction: column; min-width: 0;
 }
 .t-etichetta { font-size: 13px; color: var(--testo-2); }
-.t-valore { font-size: 17px; font-weight: 650; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-valore { font-size: 19px; font-weight: 650; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.t-valore.entrata { color: var(--positivo); }
 
 .sezione { margin-top: 12px; }
 .sezione h3 { font-size: 17px; font-weight: 650; margin-bottom: 10px; }
@@ -239,14 +253,20 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .mov-importo.investimento { color: var(--testo-2); }
 
 /* ---------------------------------------------------------------- foglio dal basso */
-.velo { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 20; }
+.velo { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 20; transition: opacity 0.22s ease; }
 .foglio {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 21; max-height: 88vh; overflow-y: auto;
   background: var(--superficie); border-radius: 20px 20px 0 0; border-top: 1px solid var(--bordo);
   padding: 8px max(16px, env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
-  max-width: 640px; margin: 0 auto; -webkit-overflow-scrolling: touch;
+  max-width: 640px; margin: 0 auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  transition: transform 0.24s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
-.maniglia { width: 40px; height: 5px; border-radius: 3px; background: var(--filo); margin: 0 auto 12px; }
+/* entra scivolando dal basso; si trascina in giù per chiuderlo */
+.foglio.entra, .foglio.via { transform: translateY(100%) !important; }
+.foglio.via { transition: transform 0.2s ease-in; }
+.foglio.trascina { transition: none; }
+.maniglia { touch-action: none; }
+.maniglia { width: 40px; height: 5px; border-radius: 3px; background: var(--testo-tenue); opacity: 0.45; margin: 0 auto 12px; }
 .foglio h2 { font-size: 20px; font-weight: 650; margin-bottom: 12px; }
 .foglio p { font-size: 15px; color: var(--testo-2); }
 .foglio p + p { margin-top: 8px; }
@@ -254,7 +274,11 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .opzione {
   min-height: 48px; padding: 8px 12px; border-radius: 12px; border: 1px solid var(--bordo); background: var(--superficie-2);
   text-align: left; font-size: 15px; display: flex; align-items: center; gap: 8px;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
 }
+.opzione.spenta { opacity: 0.55; }
+.griglia.in-modifica .opzione { border-style: dashed; border-color: var(--accento); }
+.opzione .matita { margin-left: auto; font-size: 12px; color: var(--accento); flex-shrink: 0; }
 .opzione[aria-pressed="true"] { border-color: var(--accento); box-shadow: inset 0 0 0 1px var(--accento); font-weight: 600; }
 .opzione.larga { grid-column: 1 / -1; }
 .campo { display: block; margin-top: 12px; }
@@ -308,13 +332,18 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .passi li { font-size: 15px; color: var(--testo-2); margin-bottom: 8px; }
 .passi b { color: var(--testo); }
 
-/* microfono: stato e livello della voce */
+/* microfono: stato, tempo e onda della voce */
+.tasto-microfono .icona-stop { display: none; }
+.tasto-microfono.ascolta .icona-mic { display: none; }
+.tasto-microfono.ascolta .icona-stop { display: block; }
 .tasto-microfono.lavora { background: var(--superficie-2); color: var(--testo-2); }
 .tasto-microfono.lavora svg { animation: gira 1.2s linear infinite; transform-origin: 50% 50%; }
 @keyframes gira { 50% { opacity: 0.35; } }
-.stato-voce { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 14px; color: var(--testo-2); }
-.stato-voce .livello { flex: 1; height: 6px; border-radius: 3px; background: var(--campo); overflow: hidden; }
-.stato-voce .livello > span { display: block; height: 100%; width: 100%; background: var(--critico); transform-origin: left; transform: scaleX(0); transition: transform 80ms linear; }
+.stato-voce { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 14px; color: var(--testo-2); font-variant-numeric: tabular-nums; }
+#statoVoceTesto { flex-shrink: 0; max-width: 70%; }
+.onda { flex: 1; display: flex; align-items: center; gap: 2px; height: 26px; min-width: 60px; }
+.onda > span { flex: 1; height: 100%; border-radius: 2px; background: var(--critico); transform: scaleY(0.08); transform-origin: center; transition: transform 90ms linear; }
+body.in-ascolto .segna { border-color: rgba(230, 103, 103, 0.7); box-shadow: 0 0 0 3px rgba(230, 103, 103, 0.25), 0 8px 30px rgba(0, 0, 0, 0.18); }
 
 /* più movimenti in una frase */
 .ant-lista { display: flex; flex-direction: column; gap: 10px; }
@@ -340,7 +369,10 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .elenco-righe { margin-top: 10px; }
 .interruttore { display: flex; align-items: center; gap: 12px; min-height: 48px; font-size: 16px; border-bottom: 1px solid var(--filo); }
 .interruttore input { width: 24px; height: 24px; accent-color: var(--tasto); flex-shrink: 0; }
-.cat-riga { display: flex; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--filo); }
+.cat-riga { width: 100%; display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 8px 2px; border: 0; border-bottom: 1px solid var(--filo); background: transparent; text-align: left; border-radius: 0; }
+.cat-riga:active { background: var(--superficie-2); }
+.cat-usi { font-size: 13px; color: var(--testo-tenue); font-variant-numeric: tabular-nums; }
+.cat-freccia { font-size: 22px; color: var(--testo-tenue); line-height: 1; padding: 0 4px; }
 .cat-riga.nascosta .cat-nome, .cat-riga.nascosta .cat-icona { opacity: 0.5; }
 .cat-icona { width: 28px; text-align: center; font-size: 18px; flex-shrink: 0; }
 .cat-nome { flex: 1; min-width: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -350,3 +382,16 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .segmentato.largo { display: flex; width: 100%; margin-bottom: 4px; }
 .segmentato.largo button { flex: 1; }
 .opzione.tratteggiata { border-style: dashed; justify-content: center; color: var(--testo-2); }
+
+/* fogli: tasto nell'angolo, note sotto il titolo, date affiancate, conferme */
+.tasto-piccolo.angolo { position: absolute; top: 22px; right: max(16px, env(safe-area-inset-right)); }
+.nota-su { font-size: 13px !important; color: var(--testo-tenue) !important; margin: -4px 0 10px !important; }
+.riga-date { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.riga-date > .campo { min-width: 0; }
+.riga-date .campo input { min-width: 0; max-width: 100%; }
+.riga-tasti.colonna { flex-direction: column; }
+.tasto-pericolo.pieno { background: var(--critico); color: #fff; border-color: var(--critico); }
+.allarme { font-size: 19px !important; font-weight: 700; color: var(--critico) !important; }
+.scelta-modello[aria-pressed="true"] { border-color: var(--accento); box-shadow: inset 0 0 0 1px var(--accento); }
+.foglio .campo input[type=date] { -webkit-appearance: none; appearance: none; }
+.foglio:has(.angolo) h2 { padding-right: 118px; }

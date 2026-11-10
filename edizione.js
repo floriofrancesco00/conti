@@ -3,7 +3,7 @@
    nella copia che va online: stesso codice, dati e memorie separati, testi propri. */
 self.EDIZIONE = {
   nome: 'principale',
-  titolo: 'Conti',
+  titolo: 'Che Conti Devastanti',   // il nome dell'app (dal 10/11/2026)
   chiave: 'conti.v1',                 // dove stanno i movimenti: non cambiarla, o l'app non li ritrova
   chiavePref: 'conti.preferenze',
   cache: 'conti-',                    // prefisso delle memorie del service worker

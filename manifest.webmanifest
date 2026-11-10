@@ -1,14 +1,14 @@
 {
-  "name": "Conti",
-  "short_name": "Conti",
+  "name": "Che Conti Devastanti",
+  "short_name": "Che Conti",
   "description": "Entrate e uscite, segnate a voce. I dati restano sul telefono.",
   "lang": "it",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0d0d0d",
-  "theme_color": "#256abf",
+  "background_color": "#1a0630",
+  "theme_color": "#1a0630",
   "icons": [
     { "src": "icone/icona-192.png", "sizes": "192x192", "type": "image/png" },
     { "src": "icone/icona-512.png", "sizes": "512x512", "type": "image/png" },

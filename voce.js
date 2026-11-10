@@ -1,59 +1,127 @@
-/* Conti — il microfono dell'app: registra e trascrive DENTRO il telefono con Whisper (modello «base»).
-   L'audio non esce mai dal telefono. Serve la rete solo la prima volta, per scaricare:
-     - la libreria transformers.js da jsDelivr (il service worker la tiene per quando non c'è rete);
-     - il modello da Hugging Face, circa 77 MB (la libreria lo tiene nella sua memoria «transformers-cache»).
+/* Conti — il microfono dell'app: registra e trascrive DENTRO il telefono con Whisper.
+   L'audio non esce mai dal telefono. Serve la rete solo la prima volta, per scaricare la libreria
+   (transformers.js da jsDelivr, il service worker la tiene per quando non c'è rete) e il modello da
+   Hugging Face (la libreria lo tiene nella sua memoria «transformers-cache»).
    Perché così: le app aggiunte alla schermata Home dell'iPhone non hanno il riconoscimento vocale di Safari
-   (WebKit bug 225298), ma possono usare il microfono. Provato il 07/11/2026 su 15 frasi lette da una voce
-   sintetica italiana: «base» col vocabolario capisce bene gli importi, «tiny» no. */
+   (WebKit bug 225298, chiuso «LATER»), ma possono usare il microfono.
+
+   Rifatto il 10/11/2026 («il microfono fa proprio schifo»). Misure sul PC con 15 frasi della voce sintetica:
+     - «Veloce» = whisper-base:  78 MB, 2,2 s a frase con un thread, 0,9 s con più thread; sbaglia spesso
+       («milleottocento» → 1880, «cioccolato» → «Ci ho colato», «e venti» → «i venti»);
+     - «Preciso» = whisper-small: 250 MB, 7,2 s con un thread, 2,6 s con più thread; scrive giusti
+       decimali e parole («43,20», «1,20 €», «eToro», «Esselunga»).
+   Il lavoro di Whisper sta in voce-lavoro.js (un worker): la pagina non si blocca mentre trascrive. */
 (function () {
   'use strict';
 
-  const LIBRERIA = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2';
-  const MODELLO = 'onnx-community/whisper-base';
-  const PESO_ATTESO = 78e6;   // byte da scaricare la prima volta, per la barra
-  // Vocabolario di partenza: solo parole, niente numeri (coi numeri d'esempio Whisper li copiava).
-  const VOCABOLARIO = 'Spese ed entrate in euro: provvigione, stipendio, ricevuto, PAC su eToro, Bitcoin, Esselunga, Fineco, caffè, palestra, scherma, bolletta, benzina.';
-  // Frasi che Whisper inventa sul silenzio (soprattutto in italiano)
-  const INVENTATE = /sottotitol|amara\.org|grazie per la visione|iscriviti al canale|spese ed entrate in euro/i;
+  const MODELLI = {
+    preciso: { id: 'onnx-community/whisper-small', dtype: 'q8', mb: 250, nome: 'Preciso' },
+    veloce: { id: 'onnx-community/whisper-base', dtype: 'q8', mb: 78, nome: 'Veloce' }
+  };
 
-  let caricamento = null;
-  let ultimo = null;   // l'ultimo audio registrato (16 kHz): serve al banco di prova per controllarlo
+  // ---------------------------------------------------------------- il worker
+  let lavoro = null, prossimo = 1, alProgresso = null, pronto = null;   // pronto = { chiave, promessa }
+  let lavoroRisponde = false;   // il worker ha già risposto almeno una volta
+  let nellaPagina = null;       // se il worker non parte: voce-lavoro.js caricato nella pagina
+  const attese = new Map();
+  const risposta = m => {
+    if (m.tipo === 'progresso') { if (alProgresso) alProgresso(m); return; }
+    const a = attese.get(m.id);
+    if (!a) return;
+    attese.delete(m.id);
+    if (m.tipo === 'errore') a.rifiuta(new Error(m.messaggio)); else a.risolvi(m);
+  };
+  function worker() {
+    if (lavoro) return lavoro;
+    lavoro = new Worker('voce-lavoro.js', { type: 'module' });
+    lavoro.onmessage = e => { lavoroRisponde = true; risposta(e.data || {}); };
+    lavoro.onerror = e => {
+      if (e && e.preventDefault) e.preventDefault();
+      try { lavoro.terminate(); } catch (x) { /* già fermo */ }
+      lavoro = null;
+      if (!lavoroRisponde) {
+        // il worker non è mai partito (telefono che non li regge): si rifà tutto dentro la pagina
+        const ancora = [...attese.values()];
+        attese.clear();
+        for (const a of ancora) mandaNellaPagina(a.messaggio).then(a.risolvi, a.rifiuta);
+        return;
+      }
+      // il worker è caduto (memoria finita): si rifiuta tutto e la volta dopo se ne crea uno nuovo
+      const err = new Error((e && e.message) || 'il riconoscimento vocale si è fermato');
+      for (const a of attese.values()) a.rifiuta(err);
+      attese.clear();
+      pronto = null;
+    };
+    return lavoro;
+  }
+  function mandaNellaPagina(messaggio) {
+    if (!nellaPagina) nellaPagina = import('./voce-lavoro.js').then(() => window.VoceLavoro);
+    return nellaPagina.then(L => new Promise((risolvi, rifiuta) => {
+      const id = prossimo++;
+      attese.set(id, { risolvi, rifiuta, messaggio });
+      L.gestisci(Object.assign({}, messaggio, { id }), risposta);
+    }));
+  }
+  function chiedi(messaggio, trasferibili) {
+    if (nellaPagina || (window.Voce && window.Voce.forzaPagina)) return mandaNellaPagina(messaggio);
+    return new Promise((risolvi, rifiuta) => {
+      const id = prossimo++;
+      attese.set(id, { risolvi, rifiuta, messaggio });
+      try { worker().postMessage(Object.assign({ id }, messaggio), trasferibili || []); }
+      catch (e) { attese.delete(id); mandaNellaPagina(messaggio).then(risolvi, rifiuta); }
+    });
+  }
 
-  function caricaModello(alProgresso) {
-    if (caricamento) return caricamento;
-    caricamento = (async () => {
-      const T = await import(LIBRERIA);
-      T.env.allowLocalModels = false;
-      const file = {};
-      const cb = e => {
-        if (!alProgresso || !e || e.status !== 'progress' || !e.file) return;
-        file[e.file] = e.loaded || 0;
-        const caricati = Object.values(file).reduce((a, b) => a + b, 0);
-        alProgresso(Math.min(0.99, caricati / PESO_ATTESO));
-      };
-      const [processor, tokenizer, model] = await Promise.all([
-        T.AutoProcessor.from_pretrained(MODELLO, { progress_callback: cb }),
-        T.AutoTokenizer.from_pretrained(MODELLO, { progress_callback: cb }),
-        T.WhisperForConditionalGeneration.from_pretrained(MODELLO, { dtype: 'q8', device: 'wasm', progress_callback: cb })
-      ]);
-      return { processor, tokenizer, model };
-    })();
-    caricamento.catch(() => { caricamento = null; });   // se fallisce (niente rete) si potrà riprovare
-    return caricamento;
+  // Carica il modello nel worker (dalla rete la prima volta, poi dalla memoria del telefono).
+  // alProg(frazione 0-1) solo durante lo scaricamento.
+  function prepara(chiave, alProg) {
+    const M = MODELLI[chiave];
+    alProgresso = alProg ? (m => alProg(Math.min(0.99, m.caricati / Math.max(m.totale || 0, M.mb * 1e6)))) : null;
+    if (pronto && pronto.chiave === chiave) return pronto.promessa;
+    const promessa = chiedi({ tipo: 'carica', modello: M.id, dtype: M.dtype });
+    pronto = { chiave, promessa };
+    promessa.catch(() => { if (pronto && pronto.promessa === promessa) pronto = null; });
+    return promessa;
+  }
+
+  // «parole»: quelle che Francesco usa di più (descrizioni recenti, categorie sue), per aiutare Whisper.
+  async function trascrivi(chiave, audio, parole) {
+    const M = MODELLI[chiave];
+    prepara(chiave);
+    // si copia (non si trasferisce): se il worker non parte, lo stesso audio si rimanda alla pagina
+    const r = await chiedi({ tipo: 'trascrivi', modello: M.id, dtype: M.dtype, audio: audio.slice(), parole: parole || [] });
+    return { testo: r.testo || '', ms: r.ms, isolato: r.isolato, thread: r.thread };
+  }
+
+  // Cancella dalla memoria del telefono i file di un modello (per liberare spazio).
+  async function cancellaModello(chiave) {
+    const M = MODELLI[chiave];
+    if (!window.caches) return 0;
+    let tolti = 0;
+    for (const nome of await caches.keys()) {
+      if (!/transformers/i.test(nome)) continue;
+      const c = await caches.open(nome);
+      for (const r of await c.keys()) if (r.url.includes(M.id + '/')) { await c.delete(r); tolti++; }
+    }
+    if (pronto && pronto.chiave === chiave) { try { lavoro.terminate(); } catch (e) { /* già fermo */ } lavoro = null; pronto = null; }
+    return tolti;
   }
 
   // ---------------------------------------------------------------- registrazione
+  let ultimo = null;   // l'ultimo audio registrato (16 kHz): serve al banco di prova per controllarlo
   // Va chiamata DENTRO il tocco sul bottone: sull'iPhone l'audio parte solo da un gesto.
-  // Si ferma da sola dopo ~1,2 s di silenzio dopo aver parlato, o dopo 15 s, o con ferma().
+  // Si ferma con ferma() (secondo tocco), da sola dopo 2 s di silenzio dopo aver parlato, o dopo 30 s.
+  // annulla() butta via quello che ha sentito.
   function ascolta(opz) {
     opz = opz || {};
+    const SILENZIO = opz.silenzio || 2.0, MASSIMO = 30, SENZA_VOCE = 8;
     const Ctx = window.AudioContext || window.webkitAudioContext;
     const ctx = new Ctx();
     const ripresa = ctx.resume ? ctx.resume() : Promise.resolve();
     let fermata = false, risolvi, rifiuta;
     const finito = new Promise((a, b) => { risolvi = a; rifiuta = b; });
     const pezzi = [], livelli = [];
-    let stream = null, proc = null, src = null;
+    let stream = null, proc = null, src = null, inizio = 0;
     let parlato = false, primoParlato = -1, ultimoParlato = -1, rumore = null, fila = 0;
 
     const chiudi = () => {
@@ -61,17 +129,19 @@
       if (stream) stream.getTracks().forEach(t => t.stop());
       if (ctx.state !== 'closed' && ctx.close) ctx.close().catch(() => { /* già chiuso */ });
     };
-    const ferma = () => {
+    const ferma = buttaVia => {
       if (fermata) return;
       fermata = true;
       chiudi();
-      const durataPezzo = pezzi.length ? pezzi[0].length / ctx.sampleRate : 0;
-      if (!parlato || !pezzi.length) { risolvi({ audio: null, parlato: false }); return; }
+      const secondi = inizio ? (performance.now() - inizio) / 1000 : 0;
+      if (buttaVia || !parlato || !pezzi.length) { risolvi({ audio: null, parlato: false, annullato: !!buttaVia, secondi }); return; }
+      const durataPezzo = pezzi[0].length / ctx.sampleRate;
       // si tiene solo il tratto parlato, con un po' di margine: meno silenzio = meno frasi inventate
-      const da = Math.max(0, primoParlato - Math.ceil(0.35 / durataPezzo));
-      const a = Math.min(pezzi.length, ultimoParlato + 1 + Math.ceil(0.45 / durataPezzo));
-      ultimo = { audio: a16k(pezzi.slice(da, a), ctx.sampleRate), frequenza: ctx.sampleRate, pezzi: pezzi.length, tenuti: a - da };
-      risolvi({ audio: ultimo.audio, parlato: true });
+      const da = Math.max(0, primoParlato - Math.ceil(0.4 / durataPezzo));
+      const a = Math.min(pezzi.length, ultimoParlato + 1 + Math.ceil(0.5 / durataPezzo));
+      const audio = normalizza(a16k(pezzi.slice(da, a), ctx.sampleRate));
+      ultimo = { audio, frequenza: ctx.sampleRate, pezzi: pezzi.length, tenuti: a - da };
+      risolvi({ audio, parlato: true, secondi });
     };
 
     navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
@@ -82,7 +152,7 @@
         src = ctx.createMediaStreamSource(s);
         proc = ctx.createScriptProcessor(4096, 1, 1);
         const durata = 4096 / ctx.sampleRate;
-        const inizio = performance.now();
+        inizio = performance.now();
         proc.onaudioprocess = e => {
           if (fermata) return;
           const d = e.inputBuffer.getChannelData(0);
@@ -94,7 +164,7 @@
           // rumore di fondo: dai primi pezzi, poi aggiornato lentamente quando non si parla
           if (livelli.length <= 3) rumore = livelli.slice().sort((x, y) => x - y)[Math.floor(livelli.length / 2)];
           // tetto al rumore: se si comincia a parlare subito, i primi pezzi sono già voce
-          const soglia = Math.max(0.012, Math.min(rumore || 0, 0.02) * 2.5);
+          const soglia = Math.max(0.01, Math.min(rumore || 0, 0.02) * 2.5);
           const i = pezzi.length - 1;
           if (rms > soglia) {
             fila++;
@@ -106,10 +176,10 @@
             fila = 0;
             if (!parlato && livelli.length > 3) rumore = rumore * 0.9 + rms * 0.1;
           }
-          if (opz.alLivello) opz.alLivello(Math.min(1, rms / Math.max(soglia * 4, 0.05)), parlato);
           const trascorso = (performance.now() - inizio) / 1000;
+          if (opz.alLivello) opz.alLivello(Math.min(1, rms / Math.max(soglia * 5, 0.06)), parlato, trascorso);
           const silenzioDopo = parlato ? (i - ultimoParlato) * durata : 0;
-          if ((parlato && silenzioDopo > 1.2) || trascorso > 15 || (!parlato && trascorso > 7)) ferma();
+          if ((parlato && silenzioDopo > SILENZIO) || trascorso > MASSIMO || (!parlato && trascorso > SENZA_VOCE)) ferma();
         };
         src.connect(proc);
         proc.connect(ctx.destination);   // il processore lavora solo se collegato: esce silenzio
@@ -117,7 +187,17 @@
       })
       .catch(err => { fermata = true; chiudi(); rifiuta(err); });
 
-    return { ferma, finito };
+    return { ferma: () => ferma(false), annulla: () => ferma(true), finito };
+  }
+
+  // Voce bassa (telefono lontano): si alza fino a 6 volte, così Whisper la sente meglio.
+  function normalizza(audio) {
+    let picco = 0;
+    for (let i = 0; i < audio.length; i++) { const v = Math.abs(audio[i]); if (v > picco) picco = v; }
+    if (!(picco > 0) || picco >= 0.5) return audio;
+    const g = Math.min(6, 0.7 / picco);
+    for (let i = 0; i < audio.length; i++) audio[i] *= g;
+    return audio;
   }
 
   // Da 44,1/48 kHz a 16 kHz con un filtro passa-basso vero (sinc con finestra di Hann, taglio a 7,2 kHz):
@@ -149,30 +229,17 @@
     return uscita;
   }
 
-  // ---------------------------------------------------------------- trascrizione
-  // «parole»: le parole che Francesco usa di più (descrizioni recenti, categorie sue), per aiutare Whisper.
-  async function trascrivi(audio, parole) {
-    const { processor, tokenizer, model } = await caricaModello();
-    const sp = t => tokenizer.convert_tokens_to_ids([t])[0];
-    const extra = (parole || []).filter(Boolean).slice(0, 14);
-    const suggerimento = VOCABOLARIO + (extra.length ? ' ' + extra.join(', ') + '.' : '');
-    const iniziali = [sp('<|startofprev|>'), ...tokenizer.encode(' ' + suggerimento, { add_special_tokens: false }),
-      sp('<|startoftranscript|>'), sp('<|it|>'), sp('<|transcribe|>'), sp('<|notimestamps|>')];
-    const ingressi = await processor(audio);
-    const uscita = await model.generate(Object.assign({}, ingressi, { decoder_input_ids: iniziali, max_new_tokens: 120 }));
-    const righe = typeof uscita.tolist === 'function' ? uscita.tolist() : uscita;
-    const seq = Array.from(righe[0]).map(Number).slice(iniziali.length);
-    let testo = tokenizer.decode(seq, { skip_special_tokens: true }).trim();
-    if (INVENTATE.test(testo)) testo = '';
-    return testo.replace(/\s+/g, ' ');
-  }
-
   window.Voce = {
-    disponibile: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext)),
-    caricaModello,
-    ascolta,
+    disponibile: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext) && window.Worker),
+    isolato: !!window.crossOriginIsolated,
+    MODELLI,
+    prepara,
     trascrivi,
-    PESO_MB: Math.round(PESO_ATTESO / 1e6),
+    ascolta,
+    cancellaModello,
+    caricato: chiave => !!(pronto && pronto.chiave === chiave),
+    nellaPagina: () => !!nellaPagina,   // vero se il worker non è partito e Whisper gira nella pagina
+    forzaPagina: false,                 // per il banco di prova
     ultimoAudio: () => ultimo
   };
 })();

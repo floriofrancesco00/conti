@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Conti</title>
+<title>Che Conti Devastanti</title>
 <meta name="description" content="Entrate e uscite, segnate a voce. I dati restano sul telefono.">
 <meta name="theme-color" content="#0d0d0d">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Conti">
+<meta name="apple-mobile-web-app-title" content="Che Conti Devastanti">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="format-detection" content="telephone=no">
 <link rel="manifest" href="manifest.webmanifest">
@@ -21,11 +21,11 @@
 
 <header class="testata">
   <div>
-    <h1>Conti</h1>
+    <h1 id="titoloApp" class="titolo-app"><span class="titolo-su">Che Conti</span><span class="titolo-giu">Devastanti</span></h1>
     <p id="oggi" class="oggi"></p>
     <p id="sfondoNome" class="sfondo-nome"></p>
   </div>
-  <button id="apriMenu" class="tasto-icona tasto-vetro" type="button" aria-label="Menù: sfondo, esporta, importa">
+  <button id="apriMenu" class="tasto-icona tasto-vetro" type="button" aria-label="Menù: sfondo, categorie, microfono, esporta">
     <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
   </button>
 </header>
@@ -37,16 +37,17 @@
       <textarea id="frase" rows="1" enterkeyhint="done" autocomplete="off" autocorrect="off" autocapitalize="sentences"
         spellcheck="false" placeholder="pizza 12 ieri · provvigione 1800"></textarea>
       <button id="microfono" class="tasto-microfono" type="button" aria-label="Detta a voce">
-        <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>
+        <svg class="icona-mic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>
+        <svg class="icona-stop" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
       </button>
     </div>
     <div id="statoVoce" class="stato-voce" hidden aria-live="polite">
       <span id="statoVoceTesto"></span>
-      <span class="livello" hidden><span id="livelloVoce"></span></span>
+      <span id="ondaVoce" class="onda" hidden aria-hidden="true"></span>
     </div>
     <div id="anteprima" class="anteprima" hidden>
       <div id="antSingolo" class="chips">
-        <button id="chipTipo" class="chip" type="button"></button>
+        <button id="chipTipo" class="chip scambia" type="button"></button>
         <button id="chipCategoria" class="chip" type="button"></button>
         <button id="chipData" class="chip" type="button"></button>
       </div>
@@ -60,7 +61,7 @@
       </div>
       <p id="antAvviso" class="avviso" hidden></p>
     </div>
-    <p id="suggerimento" class="suggerimento">Scrivi o tocca il microfono, poi Salva. Anche più cose insieme: «pizza 12, benzina 50». Data, tipo e categoria si correggono toccandoli.</p>
+    <p id="suggerimento" class="suggerimento">Scrivi o tocca il microfono, poi Salva. Anche più cose insieme: «pizza 12, benzina 50», o fisse: «netflix 13,99 ogni mese». Tipo, categoria e giorno si correggono toccandoli.</p>
   </section>
 
   <div id="bannerProva" class="carta banner" hidden>
@@ -93,9 +94,8 @@
       <p class="hero" id="heroValore"></p>
       <p class="hero-sotto" id="heroSotto"></p>
       <div class="tessere">
-        <div class="tessera"><span class="t-etichetta">Entrate</span><span class="t-valore" id="totEntrate"></span></div>
+        <div class="tessera"><span class="t-etichetta">Entrate</span><span class="t-valore entrata" id="totEntrate"></span></div>
         <div class="tessera"><span class="t-etichetta">Uscite</span><span class="t-valore" id="totUscite"></span></div>
-        <div class="tessera"><span class="t-etichetta">Investiti</span><span class="t-valore" id="totInvestiti"></span></div>
       </div>
     </div>
   </section>
