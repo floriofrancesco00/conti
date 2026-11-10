@@ -16,7 +16,7 @@
     uscita: [
       { nome: 'Spesa', icona: '🛒', parole: ['spesa', 'supermercato', 'esselunga', 'coop', 'conad', 'lidl', 'eurospin', 'despar', 'interspar', 'carrefour', 'aldi', 'penny', 'famila', 'alimentari', 'panificio', 'fornaio', 'macelleria', 'pescheria', 'frutta', 'verdura', 'mercato'] },
       // «bar» da solo va in Svago; in giornata (prima delle 18, oggi, senza «sera») va in Cibo: vedi barDiGiorno()
-      { nome: 'Cibo', icona: '🍕', parole: ['cibo', 'pizza', 'pizzeria', 'ristorante', 'trattoria', 'osteria', 'caffe', 'cappuccino', 'brioche', 'cornetto', 'colazione', 'merenda', 'spuntino', 'cena', 'pranzo', 'sushi', 'kebab', 'poke', 'ramen', 'mcdonald', 'mcdonalds', 'mc', 'burger', 'hamburger', 'gelato', 'pasticceria', 'paninoteca', 'panino', 'piadina', 'tramezzino', 'toast', 'focaccia', 'rosticceria', 'tavola calda', 'cicchetti', 'glovo', 'deliveroo', 'just eat', 'justeat', 'asporto'] },
+      { nome: 'Cibo', icona: '🍕', parole: ['cibo', 'pizza', 'pizzeria', 'ristorante', 'trattoria', 'osteria', 'caffe', 'cappuccino', 'brioche', 'cornetto', 'colazione', 'merenda', 'spuntino', 'cena', 'pranzo', 'sushi', 'kebab', 'poke', 'ramen', 'mcdonald', 'mcdonalds', 'mc', 'burger', 'hamburger', 'gelato', 'gelateria', 'pasticceria', 'dolce', 'dolcetto', 'pasticcino', 'torta', 'krapfen', 'bombolone', 'muffin', 'biscotti', 'caramelle', 'patatine', 'snack', 'crepe', 'frittella', 'paninoteca', 'panino', 'piadina', 'tramezzino', 'toast', 'focaccia', 'rosticceria', 'tavola calda', 'cicchetti', 'glovo', 'deliveroo', 'just eat', 'justeat', 'asporto'] },
       { nome: 'Trasporti', icona: '🚆', parole: ['benzina', 'carburante', 'diesel', 'gasolio', 'pieno', 'autostrada', 'pedaggio', 'telepass', 'treno', 'trenitalia', 'italo', 'biglietto', 'bus', 'autobus', 'actv', 'vaporetto', 'tram', 'metro', 'taxi', 'uber', 'parcheggio', 'sosta', 'monopattino'] },
       { nome: 'Motori', icona: '🔧', parole: ['motori', 'moto', 'meccanico', 'tagliando', 'gomme', 'pneumatici', 'revisione', 'bollo auto', 'bollo moto', 'carrozziere', 'autolavaggio', 'assicurazione auto', 'assicurazione moto', 'rca', 'officina', 'casco'] },
       { nome: 'Casa', icona: '🏠', parole: ['casa', 'bolletta', 'luce', 'gas', 'enel', 'hera', 'veritas', 'acqua', 'internet', 'fibra', 'wifi', 'affitto', 'condominio', 'tari', 'manutenzione', 'idraulico', 'elettricista', 'ikea', 'brico', 'mobili', 'elettrodomestico', 'pulizie', 'detersivi', 'ferramenta'] },
@@ -147,12 +147,13 @@
     else if (s.startsWith('-') || s.startsWith('−')) { s = s.slice(1); segno = -1; }
     let molt = 1;
     if (/k$/.test(s)) { molt = 1000; s = s.slice(0, -1); }
-    const m = s.match(/^(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d+(?:[.,]\d{1,2})?)$/);
+    const m = s.match(/^(\d{1,3}(?:\.\d{3})+(?:,\d{1,2})?|\d{1,3}(?:,\d{3})+|\d+(?:[.,]\d{1,2})?)$/);
     if (!m) return null;
     let n;
     if (/^\d{1,3}(?:\.\d{3})+/.test(m[1])) n = parseFloat(m[1].replace(/\./g, '').replace(',', '.'));
+    else if (/^\d{1,3}(?:,\d{3})+$/.test(m[1])) n = parseFloat(m[1].replace(/,/g, ''));   // «1,200» scritto all'inglese
     else n = parseFloat(m[1].replace(',', '.'));
-    return { valore: n * molt, decimali: /[.,]\d{1,2}$/.test(m[1]), segno };
+    return { valore: n * molt, decimali: /[.,]\d{1,2}$/.test(m[1]) && !/^\d{1,3}(?:,\d{3})+$/.test(m[1]), segno };
   }
 
   // Numeri a parole («dodici», «trecentoquaranta», «duemila»): servono solo se la dettatura non li scrive in cifre.
@@ -247,7 +248,8 @@
         }
       }
       // il 3 (giorno del mese corrente), solo se resta un altro numero per l'importo
-      if (['il', 'giorno'].includes(t) && tok[i + 1] && /^\d{1,2}$/.test(tok[i + 1].norm)) {
+      const meseDopo2 = tok[i + 2] && (MESI.includes(tok[i + 2].norm) || MESI_BREVI.includes(tok[i + 2].norm));
+      if (['il', 'giorno'].includes(t) && tok[i + 1] && /^\d{1,2}$/.test(tok[i + 1].norm) && !meseDopo2) {
         const giorno = +tok[i + 1].norm;
         if (giorno >= 1 && giorno <= 31 && restanoImporti(i + 1)) {
           // solo il giorno: se cadrebbe nel futuro è del mese scorso
@@ -270,22 +272,75 @@
   }
 
   // ---------------------------------------------------------------- importo
+  // Importi detti in due pezzi, che la trascrizione scrive come capita (10/11/2026: «due euro e 90» era diventato 90 €):
+  // «due euro e 90», «12 euro e cinquanta centesimi», «12 euro 50», «2 e 90», «dodici e cinquanta euro»,
+  // «2 virgola 90», «dodici virgola cinque», «90 centesimi», «mille e duecento». Diventano un numero solo,
+  // nel primo pezzo (t.num, con t.decimali se ha i centesimi); gli altri pezzi si segnano come usati.
+  const CENTESIMI = /^(centesim|cent$)/;
+  const NON_CENTESIMI = new Set(['giorni', 'giorno', 'settimane', 'settimana', 'mesi', 'mese', 'anni', 'anno', 'volte',
+    'litri', 'litro', 'km', 'chilometri', 'persone', 'pezzi', 'minuti', 'ore', ...MESI, ...MESI_BREVI]);
+  function intero(t) {
+    if (!t || t.usato) return null;
+    if (t.num !== undefined) return t.decimali || !Number.isInteger(t.num) ? null : t.num;
+    return /^\d+$/.test(t.norm) ? +t.norm : null;
+  }
+  function unisciImporti(tok) {
+    const unisci = (t, valore, ...usati) => { t.num = valore; t.decimali = true; usati.forEach(u => { if (u) u.usato = true; }); };
+    const cent = k => tok[k] && !tok[k].usato && CENTESIMI.test(tok[k].norm) ? tok[k] : null;
+    for (let i = 0; i < tok.length; i++) {
+      const t = tok[i], n = intero(t);
+      if (n === null) continue;
+      const a = tok[i + 1], b = tok[i + 2], c = tok[i + 3];
+      if (!a || a.usato) continue;
+      if (a.norm === 'virgola') {
+        const m = intero(b);
+        if (m !== null && m < 100) {
+          const unaCifra = b.num !== undefined ? m < 10 : b.norm.length === 1;
+          unisci(t, n + (unaCifra ? m / 10 : m / 100), a, b);
+        }
+      } else if (VALUTA.has(a.norm)) {
+        if (b && !b.usato && b.norm === 'e') {
+          const m = intero(c);
+          if (m !== null && m < 100) unisci(t, n + m / 100, b, c, cent(i + 4));
+        } else {
+          const m = intero(b);
+          const dopo = tok[i + 3] && tok[i + 3].norm;
+          if (m !== null && (m >= 10 || cent(i + 3)) && m < 100 && !(dopo && (VALUTA.has(dopo) || NON_CENTESIMI.has(dopo)))) unisci(t, n + m / 100, b, cent(i + 3));
+        }
+      } else if (a.norm === 'e') {
+        const m = intero(b);
+        if (m === null) continue;
+        const c3 = cent(i + 3);
+        const dopo = c && c.norm;
+        if (n >= 1000 && n % 1000 === 0 && m < 1000 && !c3) { t.num = n + m; a.usato = b.usato = true; }
+        else if (m < 100 && (m >= 10 || c3) && !(dopo && NON_CENTESIMI.has(dopo))) unisci(t, n + m / 100, a, b, c3);
+      } else if (CENTESIMI.test(a.norm) && n < 100) {
+        unisci(t, n / 100, a);
+      }
+    }
+  }
+
   function leggiImporto(tok) {
+    unisciImporti(tok);
     const candidati = [];
     tok.forEach((t, i) => {
       if (t.usato) return;
-      let num = t.num !== undefined ? { valore: t.num, decimali: false, segno: 1 } : numeroDaToken(t.norm);
+      let num = t.num !== undefined ? { valore: t.num, decimali: !!t.decimali, segno: 1 } : numeroDaToken(t.norm);
       // «un euro e 20»: «un» vale 1 solo se subito dopo c'è la valuta
       if (!num && (t.norm === 'un' || t.norm === 'uno') && tok[i + 1] && VALUTA.has(tok[i + 1].norm)) num = { valore: 1, decimali: false, segno: 1 };
       if (!num) return;
       const prima = tok[i - 1], dopo = tok[i + 1];
       const conValuta = !!((dopo && VALUTA.has(dopo.norm)) || (prima && prima.norm === '€'));
       const anno = /^(19|20)\d{2}$/.test(t.norm);
-      candidati.push({ i, num, conValuta, anno });
+      candidati.push({ i, num, conValuta, anno, aParole: !/\d/.test(t.norm) && t.norm !== 'un' && t.norm !== 'uno' });
     });
     if (!candidati.length) return null;
-    const nonAnni = candidati.filter(c => !c.anno);
-    const pool = nonAnni.length ? nonAnni : candidati;
+    // con delle cifre nella frase, un numero a parole è l'importo solo se ha accanto «euro» o i centesimi:
+    // «pizza con due amici 30» costa 30, «due euro e 90» costa 2,90
+    let validi = candidati;
+    if (candidati.some(c => !c.aParole)) validi = candidati.filter(c => !c.aParole || c.conValuta || c.num.decimali);
+    const nonAnni = validi.filter(c => !c.anno);
+    const pool = nonAnni.length ? nonAnni : validi;
     const scelto = pool.find(c => c.conValuta) || pool.find(c => c.num.decimali) ||
       pool.reduce((a, b) => (b.num.valore > a.num.valore ? b : a));
     let valore = scelto.num.valore;
@@ -311,7 +366,7 @@
                tok[i + 3] && /^centesim/.test(tok[i + 3].norm)) {
       valore += centDi(tok[i + 2]) / 100; dopo.usato = true; tok[i + 2].usato = true; tok[i + 3].usato = true;
     }
-    return { centesimi: Math.round(valore * 100), segno: scelto.num.segno, esplicito: tok[i].orig.trim()[0] === '+' ? 1 : (scelto.num.segno < 0 ? -1 : 0) };
+    return { centesimi: Math.round(valore * 100), forte: !scelto.aParole || scelto.conValuta || !!scelto.num.decimali, segno: scelto.num.segno, esplicito: tok[i].orig.trim()[0] === '+' ? 1 : (scelto.num.segno < 0 ? -1 : 0) };
   }
 
   // ---------------------------------------------------------------- categorie personali
@@ -378,17 +433,63 @@
     return dataIso === isoDa(adesso) && ora >= 5 && ora < 18;
   }
 
-  // «ogni mese», «al mese», «mensile», «tutti i mesi»: il movimento si ripete ogni mese
-  function leggiRipeti(tok) {
-    for (let i = 0; i < tok.length; i++) {
-      const a = tok[i].norm, b = tok[i + 1] && tok[i + 1].norm, c = tok[i + 2] && tok[i + 2].norm;
-      if (tok[i].usato) continue;
-      if ((a === 'ogni' || a === 'al') && b === 'mese') { tok[i].usato = tok[i + 1].usato = true; return true; }
-      if (a === 'tutti' && b === 'i' && c === 'mesi') { tok[i].usato = tok[i + 1].usato = tok[i + 2].usato = true; return true; }
-      if (a === 'mensile' || a === 'mensili' || a === 'mensilmente') { tok[i].usato = true; return true; }
-    }
-    return false;
+  // «ogni mese», «al mese», «mensile», «tutti i mesi»: il movimento si ripete ogni mese.
+  // Dal 10/11/2026 anche il giorno: «ogni 18 del mese», «il 5 di ogni mese», «ogni mese il 18», «tutti i 18»,
+  // «il primo di ogni mese». Restituisce { ripeti, giorno } (giorno null se non l'ha detto).
+  function giornoDi(t) {
+    if (!t || t.usato) return null;
+    const v = t.norm === 'primo' ? 1 : intero(t);
+    return v !== null && v >= 1 && v <= 31 ? v : null;
   }
+  function leggiRipeti(tok) {
+    const n = k => tok[k] && !tok[k].usato ? tok[k].norm : null;
+    const usa = (...idx) => idx.forEach(k => { if (tok[k]) tok[k].usato = true; });
+    // dopo il giorno: «del mese», «di ogni mese», «di tutti i mesi», «di ogni»
+    const coda = k => {
+      if (n(k) === 'del' && n(k + 1) === 'mese') return [k, k + 1];
+      if (n(k) === 'di' && n(k + 1) === 'ogni' && n(k + 2) === 'mese') return [k, k + 1, k + 2];
+      if (n(k) === 'di' && n(k + 1) === 'tutti' && n(k + 2) === 'i' && n(k + 3) === 'mesi') return [k, k + 1, k + 2, k + 3];
+      return null;
+    };
+    const vietatoDopo = k => { const d = n(k); return !!d && (VALUTA.has(d) || NON_CENTESIMI.has(d)); };
+    for (let i = 0; i < tok.length; i++) {
+      const a = n(i);
+      if (!a) continue;
+      // «ogni 18 (del mese)», «tutti i 18 (del mese)»
+      const g1 = a === 'ogni' ? giornoDi(tok[i + 1]) : (a === 'tutti' && n(i + 1) === 'i' ? giornoDi(tok[i + 2]) : null);
+      if (g1 !== null) {
+        const k = a === 'ogni' ? i + 1 : i + 2;
+        const c = coda(k + 1);
+        if (c || !vietatoDopo(k + 1)) { usa(...range(i, k), ...(c || [])); return { ripeti: true, giorno: g1 }; }
+      }
+      // «il 5 di ogni mese», «il 18 del mese», «al 18 di ogni mese»
+      const g2 = a === 'il' || a === 'al' ? giornoDi(tok[i + 1]) : null;
+      if (g2 !== null) {
+        const c = coda(i + 2);
+        if (c) { usa(i, i + 1, ...c); return { ripeti: true, giorno: g2 }; }
+      }
+    }
+    for (let i = 0; i < tok.length; i++) {
+      const a = n(i), b = n(i + 1), c = n(i + 2);
+      if (!a) continue;
+      let preso = null;
+      if ((a === 'ogni' || a === 'al') && b === 'mese') preso = [i, i + 1];
+      else if (a === 'tutti' && b === 'i' && c === 'mesi') preso = [i, i + 1, i + 2];
+      else if (a === 'mensile' || a === 'mensili' || a === 'mensilmente') preso = [i];
+      if (!preso) continue;
+      usa(...preso);
+      // «ogni mese il 18»: il giorno subito dopo
+      const k = preso[preso.length - 1] + 1;
+      if ((n(k) === 'il' || n(k) === 'al') && giornoDi(tok[k + 1]) !== null && !vietatoDopo(k + 2)) {
+        const g = giornoDi(tok[k + 1]);
+        usa(k, k + 1);
+        return { ripeti: true, giorno: g };
+      }
+      return { ripeti: true, giorno: null };
+    }
+    return { ripeti: false, giorno: null };
+  }
+  const range = (a, b) => Array.from({ length: b - a + 1 }, (_, j) => a + j);
 
   function paroleSignificative(descrizione) {
     return normalizza(descrizione).replace(/[^a-z0-9&' ]/g, ' ').split(/\s+/)
@@ -407,19 +508,22 @@
     const oggi = aMezzanotte(opz.oggi || adesso);
     const tok = tokenizza(testo);
     const risultato = { tipo: 'uscita', importo: null, categoria: null, data: isoDa(oggi), descrizione: '', ripeti: false,
-      certo: { tipo: false, categoria: false, importo: false, data: false } };
+      giornoMese: null, certo: { tipo: false, categoria: false, importo: false, data: false } };
     if (!tok.length) return risultato;
 
-    // numeri a parole solo se non c'è nessuna cifra
-    if (!tok.some(t => /\d/.test(t.norm))) {
-      tok.forEach(t => { const n = numeroDaParola(t.norm); if (n !== null) t.num = n; });
-    }
+    // numeri a parole («due», «novanta»): sempre, anche accanto alle cifre («due euro e 90»). Quale sia
+    // l'importo lo decide leggiImporto: con delle cifre nella frase, una parola vale solo se ha accanto «euro».
+    tok.forEach(t => { const n = numeroDaParola(t.norm); if (n !== null) t.num = n; });
     const contaNumeriLiberi = escluso => tok.filter((t, i) => !t.usato && i !== escluso &&
       (t.num !== undefined || numeroDaToken(t.norm))).length > 0;
 
+    // prima le ricorrenti, così il «18» di «ogni 18 del mese» non diventa né una data né l'importo
+    const rip = leggiRipeti(tok);
+    risultato.ripeti = rip.ripeti;
+    risultato.giornoMese = rip.giorno;
     const data = leggiData(tok, oggi, contaNumeriLiberi);
     if (data) { risultato.data = isoDa(data); risultato.certo.data = true; }
-    risultato.ripeti = leggiRipeti(tok);
+    if (risultato.ripeti && !risultato.giornoMese && data) risultato.giornoMese = data.getDate();
 
     let imp = leggiImporto(tok);
     // «Pizzadodici euro»: la trascrizione a volte incolla il numero alla parola prima. Solo come ultima
@@ -439,7 +543,7 @@
         }
       }
     }
-    if (imp) { risultato.importo = imp.centesimi; risultato.certo.importo = imp.centesimi > 0; }
+    if (imp) { risultato.importo = imp.centesimi; risultato.certo.importo = imp.centesimi > 0; risultato.importoForte = imp.forte; }
 
     const spaziato = ' ' + tok.map(t => t.norm.replace(/[^a-z0-9&']/g, '')).join(' ') + ' ';
 
@@ -526,13 +630,17 @@
     if (attesa) { if (uniti.length) uniti[uniti.length - 1] += ', ' + attesa; else uniti.push(attesa); }
     const finali = [];
     for (const u of uniti) {
+      // «due pizze e una birra 20» è uno: con delle cifre nella frase, un pezzo fa un movimento a sé solo se il suo
+      // importo è «forte» (in cifre, con «euro» accanto o coi centesimi: «dodici e cinquanta pizza e birra 5» sono due)
+      const conCifre = /\d/.test(u);
+      const pieno = s => { const r = analizza(s, opz); return r.importo > 0 && (!conCifre || r.importoForte); };
       let resto = u;
       for (;;) {
         const re = /\s+e\s+/gi;
         let m, diviso = false;
         while ((m = re.exec(resto))) {
           const sx = resto.slice(0, m.index), dx = resto.slice(m.index + m[0].length);
-          if (haImporto(sx, opz) && haImporto(dx, opz) && !iniziaConNumero(dx)) { finali.push(sx.trim()); resto = dx; diviso = true; break; }
+          if (pieno(sx) && pieno(dx) && !iniziaConNumero(dx)) { finali.push(sx.trim()); resto = dx; diviso = true; break; }
         }
         if (!diviso) break;
       }

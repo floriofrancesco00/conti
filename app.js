@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.10-1556';
+  const VERSIONE = '2026.11.10-1716';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -151,6 +151,13 @@
     if (m > 12) { m = 1; y++; }
     return y + '-' + String(m).padStart(2, '0');
   }
+
+  // il giorno «g» del mese «k» ('AAAA-MM'): il 31 nei mesi più corti diventa l'ultimo giorno
+  function dataNelMese(k, g) {
+    const [y, m] = k.split('-').map(Number);
+    return A.isoDa(new Date(y, m - 1, Math.min(g, new Date(y, m, 0).getDate())));
+  }
+  const corto = s => (s.length > 22 ? s.slice(0, 21) + '…' : s);
 
   function etichettaGiorno(iso) {
     const d = daIso(iso), diff = Math.round((oggi() - d) / GIORNO_MS);
@@ -412,22 +419,77 @@
       if (!inModifica) corpo.appendChild(el('p', 'nota', 'Quando correggi una categoria, la prossima volta che usi le stesse parole la propongo io. Per cambiarle nome tocca «✎ Modifica» o tienila premuta.'));
     });
   }
-  // «ripeti» (facoltativo): { acceso, alCambiare(bool) } per la spesa ricorrente, che si ripete ogni mese
+  // I giorni del mese (1-31) da toccare, per le spese ricorrenti
+  function grigliaGiorni(scelto, alScegliere) {
+    const g = el('div', 'giorni-mese');
+    g.id = 'giorniMese';
+    for (let n = 1; n <= 31; n++) {
+      const b = tasto('giorno-mese', String(n), () => alScegliere(n));
+      b.dataset.giorno = String(n);
+      b.setAttribute('aria-pressed', String(n === scelto));
+      b.setAttribute('aria-label', 'Il ' + n + ' di ogni mese');
+      g.appendChild(b);
+    }
+    return g;
+  }
+  // Testo sotto la griglia: cosa succede questo mese
+  function notaRicorrente(giorno, inizio) {
+    const ora = oggi();
+    if (inizio === 'prossimo') return 'Questo mese no: il primo sarà il ' + giorno + ' ' + MESI[(ora.getMonth() + 1) % 12] + ', poi ogni mese da solo.';
+    const passato = giorno < ora.getDate();
+    return 'Si segna da solo ogni ' + giorno + ' del mese e conta in quel mese, dal 1° all\'ultimo giorno. ' + (passato
+      ? 'Il ' + giorno + ' di questo mese è già passato: lo conto come già pagato (se l\'avevi già segnato a mano, scegli «Dal prossimo»).'
+      : 'Finché non arriva il ' + giorno + ' lo vedi «in arrivo».') + ' Lo trovi in Menù → Movimenti fissi.';
+  }
+
+  // «ripeti» (facoltativo) per la spesa ricorrente: { acceso, giorno, inizio: 'questo' | 'prossimo', senzaInizio,
+  //   alCambiare({ acceso, giorno, inizio }), alFatto }. Con «Ogni mese» si sceglie il giorno del mese, non la data:
+  //   «ogni 18 del mese» (10/11/2026: «Ieri, l'altro ieri, domani… devo poter dire ogni 18 del mese»).
   function scegliData(corrente, alScegliere, ripeti) {
     apriFoglio('Quando?', corpo => {
       if (ripeti) {
+        const r = Object.assign({}, ripeti);
+        if (!r.inizio) r.inizio = 'questo';
+        if (!r.giorno) r.giorno = daIso(corrente).getDate();
+        const cambia = diff => {
+          const nuovo = Object.assign({}, r, diff);
+          ripeti.alCambiare({ acceso: !!nuovo.acceso, giorno: nuovo.giorno, inizio: nuovo.inizio });
+          scegliData(corrente, alScegliere, nuovo);
+        };
         const seg = el('div', 'segmentato largo');
         seg.id = 'quandoRipeti';
-        const giorno = daIso(corrente).getDate();
         [[false, 'Una volta'], [true, '🔁 Ogni mese']].forEach(([v, nome]) => {
-          const s = tasto('', nome, () => { ripeti.alCambiare(v); scegliData(corrente, alScegliere, Object.assign({}, ripeti, { acceso: v })); });
-          s.setAttribute('aria-pressed', String(!!ripeti.acceso === v));
+          const s = tasto('', nome, () => cambia({ acceso: v }));
+          s.setAttribute('aria-pressed', String(!!r.acceso === v));
           seg.appendChild(s);
         });
         corpo.appendChild(seg);
-        corpo.appendChild(el('p', 'nota-su', ripeti.acceso
-          ? 'Spesa ricorrente: si segna da sola il ' + giorno + ' di ogni mese (il giorno che scegli qui sotto). La trovi in Menù → Movimenti fissi.'
-          : 'Per le uscite stabili (affitto, abbonamenti, palestra) scegli «Ogni mese»: si segnano da sole.'));
+        if (r.acceso) {
+          corpo.appendChild(el('div', 'titoletto', 'Che giorno del mese?'));
+          corpo.appendChild(grigliaGiorni(r.giorno, g => cambia({ giorno: g })));
+          if (r.giorno > 28) corpo.appendChild(el('p', 'nota-su', 'Nei mesi che non hanno il ' + r.giorno + ' si segna l\'ultimo giorno del mese.'));
+          if (!r.senzaInizio) {
+            corpo.appendChild(el('div', 'titoletto', 'Da quando?'));
+            const seg2 = el('div', 'segmentato largo');
+            seg2.id = 'quandoInizio';
+            [['questo', 'Da questo mese'], ['prossimo', 'Dal prossimo']].forEach(([k, nome]) => {
+              const s = tasto('', nome, () => cambia({ inizio: k }));
+              s.setAttribute('aria-pressed', String(r.inizio === k));
+              seg2.appendChild(s);
+            });
+            corpo.appendChild(seg2);
+            corpo.appendChild(el('p', 'nota', notaRicorrente(r.giorno, r.inizio)));
+          } else {
+            corpo.appendChild(el('p', 'nota', 'Questo movimento resta com\'è; dal mese prossimo si segna da solo ogni ' + r.giorno + ' del mese. Lo trovi in Menù → Movimenti fissi.'));
+          }
+          const riga = el('div', 'riga-tasti');
+          const fatto = tasto('tasto-primario', 'Fatto', () => { chiudiFoglio(); if (ripeti.alFatto) ripeti.alFatto(); else alScegliere(corrente); });
+          fatto.id = 'quandoFatto';
+          riga.appendChild(fatto);
+          corpo.appendChild(riga);
+          return;
+        }
+        corpo.appendChild(el('p', 'nota-su', 'Per le uscite stabili (affitto, abbonamenti, palestra) scegli «Ogni mese»: tocchi il giorno del mese e si segnano da sole.'));
       }
       const g = el('div', 'griglia');
       g.style.marginTop = ripeti ? '12px' : '0';
@@ -482,6 +544,12 @@
       if (s.categoria && valida(r.tipo, s.categoria)) { r.categoria = s.categoria; r.certo.categoria = true; }
       if (s.data) r.data = s.data;
       if (s.ripeti !== undefined) r.ripeti = s.ripeti;
+      if (r.ripeti) {   // la data è il giorno scelto, in questo mese o nel prossimo
+        r.giorno = s.giorno || r.giornoMese || daIso(r.data).getDate();
+        r.inizio = s.inizio || 'questo';
+        const k = chiaveMese(oggi());
+        r.data = dataNelMese(r.inizio === 'prossimo' ? meseDopo(k) : k, r.giorno);
+      }
       return r;
     });
     disegnaAnteprima();
@@ -504,8 +572,10 @@
   function cambiaData(i) {
     const c = correnti[i];
     if (!c) return;
-    scegliData(c.data, iso => { scelte[i].data = iso; rileggi(); },
-      { acceso: c.ripeti, alCambiare: v => { scelte[i].ripeti = v; rileggi(); } });
+    scegliData(c.data, iso => { scelte[i].data = iso; rileggi(); }, {
+      acceso: c.ripeti, giorno: c.giorno, inizio: c.inizio, alFatto: rileggi,
+      alCambiare: v => { scelte[i].ripeti = v.acceso; scelte[i].giorno = v.giorno; scelte[i].inizio = v.inizio; rileggi(); }
+    });
   }
 
   function disegnaAnteprima() {
@@ -517,7 +587,7 @@
     const imp = $('antImporto');
     const avviso = $('antAvviso');
     const senzaImporto = correnti.filter(c => !(c.importo > 0));
-    const futuri = correnti.filter(c => daIso(c.data) > oggi());
+    const futuri = correnti.filter(c => !c.ripeti && daIso(c.data) > oggi());
     if (!multi) {
       const c = correnti[0];
       const ct = $('chipTipo');
@@ -573,7 +643,9 @@
     campoFrase.style.height = Math.min(campoFrase.scrollHeight + 2, 200) + 'px';
   }
 
-  const etichettaQuando = c => etichettaGiorno(c.data) + (c.ripeti ? ' · 🔁 ogni mese' : '');
+  const etichettaQuando = c => (c.ripeti
+    ? '🔁 Ogni ' + (c.giorno || daIso(c.data).getDate()) + (c.inizio === 'prossimo' ? ', dal mese prossimo' : ' del mese')
+    : etichettaGiorno(c.data));
 
   function impara(descrizione, tipo, categoria) {
     for (const p of A.paroleSignificative(descrizione)) stato.imparate[p] = { tipo, categoria };
@@ -585,17 +657,20 @@
     if (!correnti.length || correnti.some(c => !(c.importo > 0))) { campoFrase.focus(); return; }
     const adesso = new Date().toISOString();
     const testo = campoFrase.value.trim();
-    const nuovi = correnti.map((c, i) => {
+    const nuovi = [], fissi = [];
+    correnti.forEach((c, i) => {
       const p = proposte[i];
       if (p && (p.tipo !== c.tipo || p.categoria !== c.categoria)) impara(c.descrizione, c.tipo, c.categoria);
-      return {
+      const m = {
         id: nuovoId(), data: c.data, tipo: c.tipo, importo: c.importo,
         categoria: c.categoria, descrizione: c.descrizione, testo: correnti.length > 1 ? c.testo : testo, creato: adesso
       };
+      // spese ricorrenti: diventano anche movimenti fissi, che si segnano da soli; «dal prossimo» per ora solo il fisso
+      if (c.ripeti && c.inizio === 'prossimo') { fissi.push(creaFisso(m, c.giorno, true)); return; }
+      nuovi.push(m);
+      if (c.ripeti) fissi.push(creaFisso(m, c.giorno));
     });
     stato.movimenti.push(...nuovi);
-    // spese ricorrenti: diventano anche movimenti fissi, che si segnano da soli i mesi dopo
-    const fissi = nuovi.filter((m, i) => correnti[i].ripeti).map(creaFisso);
     if (!scrivi()) {
       stato.movimenti.splice(stato.movimenti.length - nuovi.length, nuovi.length);
       stato.ricorrenti = stato.ricorrenti.filter(r => !fissi.includes(r));
@@ -604,15 +679,17 @@
     campoFrase.value = '';
     scelte = [];
     rileggi();
-    const d = daIso(nuovi[nuovi.length - 1].data);
-    vista.anno = d.getFullYear();
-    if (vista.modo === 'mese') vista.mese = d.getMonth();
+    if (nuovi.length) {
+      const d = daIso(nuovi[nuovi.length - 1].data);
+      vista.anno = d.getFullYear();
+      if (vista.modo === 'mese') vista.mese = d.getMonth();
+    }
     disegna();
     const ids = new Set(nuovi.map(m => m.id));
-    const m0 = nuovi[0];
     const testoToast = (nuovi.length > 1 ? 'Salvati ' + nuovi.length + ' movimenti'
-      : 'Salvato: ' + (m0.descrizione.length > 22 ? m0.descrizione.slice(0, 21) + '…' : m0.descrizione) + ' ' + euro(Math.abs(m0.importo)))
-      + (fissi.length ? ' · 🔁 ogni mese' : '');
+      : nuovi.length ? 'Salvato: ' + corto(nuovi[0].descrizione) + ' ' + euro(Math.abs(nuovi[0].importo))
+        : 'Fisso salvato: ' + corto(fissi[0].descrizione) + ', dal mese prossimo')
+      + (fissi.length ? ' · 🔁 ogni ' + [...new Set(fissi.map(r => r.giorno))].join(', ') : '');
     mostraToast(testoToast, 'Annulla', () => {
       stato.movimenti = stato.movimenti.filter(x => !ids.has(x.id));
       stato.ricorrenti = stato.ricorrenti.filter(r => !fissi.includes(r));
@@ -635,9 +712,11 @@
   $('chipData').addEventListener('click', () => cambiaData(0));
 
   // ================================================================ movimenti fissi (ricorrenti)
-  // Ogni fisso: { id, descrizione, importo (come nei movimenti: negativo = ritiro dagli investimenti),
-  //   tipo, categoria, giorno (1-31), attivo, dal ('AAAA-MM': primo mese ancora da fare), fatti: ['AAAA-MM'] }.
-  // Un mese «fatto» non si rifà più, anche se il movimento poi lo cancelli: così cancellare vuol dire «questo mese no».
+  // Ogni fisso: { id, descrizione, importo, tipo, categoria, giorno (1-31), attivo, dal ('AAAA-MM': primo mese ancora
+  //   da fare), fatti: ['AAAA-MM'] }. Un mese «fatto» non si rifà più, anche se il movimento poi lo cancelli: così
+  //   cancellare vuol dire «questo mese no».
+  // Dal 10/11/2026 il movimento del mese si segna il 1° (con la data del suo giorno) e conta nel mese dal 1° all'ultimo
+  // giorno: finché il giorno non arriva è «in arrivo» e il saldo attuale non lo toglie (saldoAttuale salta le date future).
   function generaRicorrenti(silenzioso) {
     const d = oggi(), ora = chiaveMese(d), adesso = new Date().toISOString();
     const nuovi = [];
@@ -650,7 +729,7 @@
         const [y, m] = k.split('-').map(Number);
         const giorno = Math.min(r.giorno, new Date(y, m, 0).getDate());   // il 31 a febbraio diventa il 28/29
         const data = new Date(y, m - 1, giorno);
-        if (data <= d && !r.fatti.includes(k)) {
+        if (!r.fatti.includes(k)) {
           nuovi.push({ id: nuovoId(), data: A.isoDa(data), tipo: r.tipo, importo: r.importo, categoria: r.categoria,
             descrizione: r.descrizione, testo: '', creato: adesso, ricorrente: r.id });
           r.fatti.push(k);
@@ -665,8 +744,10 @@
     if (nuovi.length) {
       stato.movimenti.push(...nuovi);
       scrivi();
-      if (!silenzioso) mostraToast(nuovi.length === 1 ? 'Segnato da solo: ' + nuovi[0].descrizione + ' ' + euro(Math.abs(nuovi[0].importo))
-        : 'Segnati da soli ' + nuovi.length + ' movimenti fissi');
+      const n0 = nuovi[0];
+      if (!silenzioso) mostraToast(nuovi.length === 1
+        ? (n0.data > A.isoDa(d) ? 'In arrivo il ' + daIso(n0.data).getDate() + ': ' : 'Segnato da solo: ') + corto(n0.descrizione) + ' ' + euro(Math.abs(n0.importo))
+        : 'Segnati da soli ' + nuovi.length + ' movimenti fissi del mese');
     } else if (cambiato) scrivi();
     return nuovi.length;
   }
@@ -682,7 +763,7 @@
 
   function apriFissi() {
     apriFoglio('Movimenti fissi', corpo => {
-      corpo.appendChild(el('p', '', 'Abbonamenti, PAC, palestra, telefono: li imposti una volta e si segnano da soli il giorno giusto di ogni mese. Se un mese non c\'è, cancella quel movimento: non torna.'));
+      corpo.appendChild(el('p', '', 'Abbonamenti, affitto, palestra, telefono, PAC: li imposti una volta col giorno del mese e si segnano da soli. Contano nel loro mese dal 1° all\'ultimo giorno: finché il giorno non arriva li vedi «in arrivo». Se un mese non c\'è, cancella quel movimento: non torna.'));
       const t = totaleFissi();
       const somma = [t.uscite ? 'uscite ' + euro(t.uscite) : '', t.entrate ? 'entrate ' + euro(t.entrate) : ''].filter(Boolean);
       if (somma.length) corpo.appendChild(el('p', 'riassunto', 'Al mese: ' + somma.join(' · ')));
@@ -694,13 +775,13 @@
         b.appendChild(el('span', 'mov-icona', iconaDi(r.tipo, r.categoria)));
         const testi = el('span', 'mov-testi');
         testi.appendChild(el('span', 'mov-desc', r.descrizione));
-        testi.appendChild(el('span', 'mov-cat', 'il ' + r.giorno + ' di ogni mese · ' + r.categoria + (r.attivo ? '' : ' · in pausa')));
+        testi.appendChild(el('span', 'mov-cat', 'ogni ' + r.giorno + ' del mese · ' + r.categoria + (r.attivo ? '' : ' · in pausa')));
         b.appendChild(testi);
         b.appendChild(el('span', 'mov-importo ' + r.tipo, segnoDi(r.tipo) + euro(Math.abs(r.importo))));
         b.addEventListener('click', () => apriFisso(r));
         lista.appendChild(b);
       }
-      if (!ordinati.length) lista.appendChild(el('p', 'vuoto', 'Nessuno ancora. Puoi anche scegliere «🔁 Ogni mese» toccando il giorno quando segni una spesa, o aprire un movimento già segnato e toccare «Ripeti ogni mese».'));
+      if (!ordinati.length) lista.appendChild(el('p', 'vuoto', 'Nessuno ancora. Puoi anche dirlo nella frase («spotify 10,99 ogni 18 del mese»), scegliere «🔁 Ogni mese» toccando il giorno quando segni una spesa, o aprire un movimento già segnato e toccare «Ripeti ogni mese».'));
       corpo.appendChild(lista);
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-primario', '＋ Aggiungi', () => apriFisso(null)));
@@ -714,7 +795,7 @@
     const b = esistente ? Object.assign({}, esistente, { importo: Math.abs(esistente.importo) })
       : { descrizione: '', importo: 0, tipo: 'uscita', categoria: ripiegoDi('uscita'), giorno: oggi().getDate(), attivo: true };
     let sceltaMano = !nuovo;
-    let quando = b.giorno >= oggi().getDate() ? 'questo' : 'prossimo';
+    let quando = 'questo';
     const disegnaForm = () => apriFoglio(nuovo ? 'Nuovo movimento fisso' : 'Movimento fisso', corpo => {
       const inDesc = inputTesto(b.descrizione);
       inDesc.placeholder = 'es. Netflix, PAC S&P 500, palestra';
@@ -729,16 +810,15 @@
       const inImp = inputTesto(b.importo ? formatoPerCampo(b.importo) : '', 'decimal');
       inImp.placeholder = '0,00';
       corpo.appendChild(campo('Importo in euro', inImp));
-      const inGiorno = inputTesto(b.giorno, 'numeric');
-      corpo.appendChild(campo('Giorno del mese (1-31)', inGiorno));
+      corpo.appendChild(el('div', 'titoletto', 'Che giorno del mese?'));
+      corpo.appendChild(grigliaGiorni(b.giorno, g => { leggi(); b.giorno = g; disegnaForm(); }));
+      if (b.giorno > 28) corpo.appendChild(el('p', 'nota-su', 'Nei mesi che non hanno il ' + b.giorno + ' si segna l\'ultimo giorno del mese.'));
       const chips = el('div', 'chips');
       chips.style.marginTop = '12px';
       const leggi = () => {
         b.descrizione = inDesc.value.trim();
         const v = leggiEuro(inImp.value);
         if (v !== null) b.importo = v;
-        const g = parseInt(inGiorno.value, 10);
-        if (g >= 1 && g <= 31) b.giorno = g;
       };
       const chipT = tasto('chip scambia', etichettaTipo(b.tipo), () => {
         leggi();
@@ -765,16 +845,17 @@
           seg.appendChild(s);
         });
         corpo.appendChild(seg);
-        corpo.appendChild(el('p', 'nota', quando === 'questo'
-          ? 'Se il giorno è già passato, lo segno subito per questo mese.'
-          : 'Questo mese no: se l\'hai già pagato, segnalo a mano come al solito.'));
+        corpo.appendChild(el('p', 'nota', notaRicorrente(b.giorno, quando)));
       } else {
         attivo = interruttore('Attivo: si segna ogni mese', b.attivo);
         corpo.appendChild(attivo.etichetta);
       }
       const riga = el('div', 'riga-tasti');
       if (!nuovo) riga.appendChild(tasto('tasto-pericolo', 'Elimina', () => {
-        if (!confirm('Eliminare il movimento fisso «' + esistente.descrizione + '»? Quelli già segnati restano.')) return;
+        const inArrivo = stato.movimenti.some(m => m.ricorrente === esistente.id && m.data > isoOggi());
+        if (!confirm('Eliminare il movimento fisso «' + esistente.descrizione + '»? Quelli già passati restano'
+          + (inArrivo ? ', quello in arrivo questo mese sparisce.' : '.'))) return;
+        aggiornaInArrivo(esistente, true);
         stato.ricorrenti = stato.ricorrenti.filter(r => r.id !== esistente.id);
         scrivi(); chiudiFoglio(); disegna();
         mostraToast('Movimento fisso eliminato');
@@ -793,23 +874,43 @@
           const riattivato = attivo && attivo.casella.checked && !r.attivo;
           Object.assign(r, { descrizione: b.descrizione, importo, tipo: b.tipo, categoria: b.categoria, giorno: b.giorno, attivo: attivo ? attivo.casella.checked : r.attivo });
           if (riattivato) r.dal = ora;   // i mesi di pausa non si recuperano
+          aggiornaInArrivo(r);
         }
         scrivi();
         chiudiFoglio();
         generaRicorrenti();
         disegna();
-        if (nuovo) mostraToast('Movimento fisso salvato: il ' + b.giorno + ' di ogni mese');
+        if (nuovo) mostraToast('Movimento fisso salvato: ogni ' + b.giorno + ' del mese');
       }));
       corpo.appendChild(riga);
     });
     disegnaForm();
   }
 
-  // Il movimento m diventa anche un fisso: il suo mese è già «fatto», i successivi si segnano da soli. Non salva.
-  function creaFisso(m) {
+  // I movimenti «in arrivo» (data futura) di un fisso seguono le sue modifiche; in pausa o eliminato («via») spariscono,
+  // e il loro mese torna da fare (se lo riattivi, si risegna).
+  function aggiornaInArrivo(r, via) {
+    const oggiIso = isoOggi();
+    const futuri = stato.movimenti.filter(m => m.ricorrente === r.id && m.data > oggiIso);
+    if (via || !r.attivo) {
+      const ids = new Set(futuri.map(m => m.id)), mesi = new Set(futuri.map(m => m.data.slice(0, 7)));
+      stato.movimenti = stato.movimenti.filter(m => !ids.has(m.id));
+      r.fatti = (r.fatti || []).filter(k => !mesi.has(k));
+    } else {
+      for (const m of futuri) Object.assign(m, { tipo: r.tipo, categoria: r.categoria, descrizione: r.descrizione,
+        importo: r.importo, data: dataNelMese(m.data.slice(0, 7), r.giorno) });
+    }
+    return futuri.length;
+  }
+
+  // Il movimento m diventa anche un fisso, ogni «giorno» del mese (se manca, quello della sua data): il suo mese
+  // è già «fatto», i successivi si segnano da soli. Con «dalProssimo» m non si salva: comincia il mese dopo. Non salva.
+  function creaFisso(m, giorno, dalProssimo) {
     const d = daIso(m.data), ora = chiaveMese(oggi()), suo = chiaveMese(d);
     const r = { id: nuovoId(), descrizione: m.descrizione, importo: m.importo, tipo: m.tipo, categoria: m.categoria,
-      giorno: d.getDate(), attivo: true, dal: suo > ora ? suo : ora, fatti: [suo], creato: new Date().toISOString() };
+      giorno: giorno || d.getDate(), attivo: true, dal: dalProssimo ? meseDopo(ora) : (suo > ora ? suo : ora),
+      fatti: dalProssimo ? [] : [suo], creato: new Date().toISOString() };
+    if (dalProssimo) { stato.ricorrenti.push(r); return r; }
     // se questo mese c'è già un movimento con la stessa descrizione, non lo rifà
     const stesso = x => x.tipo === m.tipo && x.data.slice(0, 7) === ora && A.normalizza(x.descrizione) === A.normalizza(m.descrizione);
     if (!r.fatti.includes(ora) && stato.movimenti.some(stesso)) r.fatti.push(ora);
@@ -817,12 +918,12 @@
     stato.ricorrenti.push(r);
     return r;
   }
-  function ripetiOgniMese(m) {
-    const r = creaFisso(m);
+  function ripetiOgniMese(m, giorno) {
+    const r = creaFisso(m, giorno);
     scrivi();
     generaRicorrenti();
     disegna();
-    mostraToast('Si ripeterà ogni mese, il giorno ' + r.giorno);
+    mostraToast('Si ripeterà ogni ' + r.giorno + ' del mese');
   }
 
   // ================================================================ saldo, tasse e mesi di autonomia
@@ -1206,6 +1307,13 @@
     $('heroValore').textContent = conSegno(t.saldo);
     let sotto = 'Entrate meno uscite.';
     if (t.tasse > 0) sotto += ' Tolti ' + euro(t.tasse) + ' per le tasse, restano ' + euro(t.restano) + '.';
+    // i fissi del mese che devono ancora arrivare contano già (dal 10/11/2026): lo si dice
+    const oggiIso = isoOggi(), futuri = lista.filter(m => m.data > oggiIso);
+    if (futuri.length) {
+      const u = futuri.filter(m => m.tipo === 'uscita').reduce((a, m) => a + m.importo, 0);
+      const e = futuri.filter(m => m.tipo === 'entrata').reduce((a, m) => a + m.importo, 0);
+      sotto += ' Compresi in arrivo: ' + [u ? 'uscite ' + euro(u) : '', e ? 'entrate ' + euro(e) : ''].filter(Boolean).join(', ') + '.';
+    }
     $('heroSotto').textContent = sotto;
     $('totEntrate').textContent = euro(t.entrate);
     $('totUscite').textContent = euro(t.uscite);
@@ -1299,13 +1407,20 @@
     if (!righe.length) {
       cont.appendChild(el('p', 'vuoto', stato.movimenti.length ? 'Nessun movimento in questo periodo.'
         : 'Ancora nessun movimento. Scrivi o detta la prima spesa qui sopra, per esempio «caffè 1,20».'));
+      if (!stato.movimenti.length) {   // un'icona nuova: i dati della vecchia arrivano dagli appunti
+        const b = tasto('tasto-secondario', '📥 Incolla dalla vecchia icona', incollaDallaVecchia);
+        b.id = 'incollaTrasloco';
+        b.style.marginTop = '10px';
+        cont.appendChild(b);
+      }
       return;
     }
     let giorno = null;
     for (const m of righe) {
       if (m.data !== giorno) {
         giorno = m.data;
-        cont.appendChild(el('div', 'giorno-titolo', etichettaGiorno(m.data)));
+        const futuro = m.data > isoOggi();
+        cont.appendChild(el('div', 'giorno-titolo' + (futuro ? ' in-arrivo' : ''), (futuro ? 'In arrivo · ' : '') + etichettaGiorno(m.data)));
       }
       cont.appendChild(rigaMovimento(m));
     }
@@ -1321,6 +1436,7 @@
     const acc = accantonamento(m);
     if (acc) sotto += ' · ' + euro(acc) + ' per le tasse';
     if (m.ricorrente) sotto += ' · fisso';
+    if (m.data > isoOggi()) { b.classList.add('in-arrivo'); sotto += ' · in arrivo'; }
     testi.appendChild(el('span', 'mov-cat', sotto));
     b.appendChild(testi);
     b.appendChild(el('span', 'mov-importo ' + m.tipo, segnoDi(m.tipo) + euro(Math.abs(m.importo))));
@@ -1334,7 +1450,7 @@
     const orig = stato.movimenti.find(m => m.id === id);
     if (!orig) return;
     const bozza = { tipo: orig.tipo, categoria: orig.categoria, data: orig.data, descrizione: orig.descrizione,
-      importo: Math.abs(orig.importo), ripeti: false };
+      importo: Math.abs(orig.importo), ripeti: false, giorno: daIso(orig.data).getDate() };
     const fissoDi = () => orig.ricorrente && stato.ricorrenti.find(r => r.id === orig.ricorrente);
     const ridisegna = () => apriFoglio('Modifica movimento', corpo => {
       const inImp = inputTesto(formatoPerCampo(bozza.importo), 'decimal');
@@ -1363,7 +1479,8 @@
         leggiCampi();
         // la spesa ricorrente si sceglie qui solo se non è già un fisso (per quelli c'è il tasto sotto)
         scegliData(bozza.data, iso => { bozza.data = iso; ridisegna(); },
-          fissoDi() ? null : { acceso: bozza.ripeti, alCambiare: v => { bozza.ripeti = v; } });
+          fissoDi() ? null : { acceso: bozza.ripeti, giorno: bozza.giorno, senzaInizio: true,
+            alCambiare: v => { bozza.ripeti = v.acceso; bozza.giorno = v.giorno; } });
       }));
       corpo.appendChild(g);
       corpo.appendChild(campo('Importo in euro', inImp));
@@ -1382,11 +1499,11 @@
         return true;
       };
       const fisso = fissoDi();
-      const rip = tasto('tasto-secondario', fisso ? '🔁 Fisso: il ' + fisso.giorno + ' di ogni mese · Modifica' : '🔁 Ripeti ogni mese', () => {
+      const rip = tasto('tasto-secondario', fisso ? '🔁 Fisso: ogni ' + fisso.giorno + ' del mese · Modifica' : '🔁 Ripeti ogni mese', () => {
         if (fisso) { apriFisso(fisso); return; }
         if (!applica()) return;
         chiudiFoglio();
-        ripetiOgniMese(orig);   // salva lui
+        ripetiOgniMese(orig, bozza.giorno);   // salva lui
       });
       rip.style.marginTop = '14px';
       corpo.appendChild(rip);
@@ -1404,7 +1521,7 @@
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
         if (!applica()) return;
-        if (bozza.ripeti && !fissoDi()) { chiudiFoglio(); ripetiOgniMese(orig); return; }   // salva lui
+        if (bozza.ripeti && !fissoDi()) { chiudiFoglio(); ripetiOgniMese(orig, bozza.giorno); return; }   // salva lui
         scrivi();
         chiudiFoglio();
         disegna();
@@ -1697,6 +1814,11 @@
       bImp.appendChild(el('small', '', 'Incolla una «Copia per l\'AI»: i movimenti già presenti non si doppiano.'));
       azioni.appendChild(bImp);
 
+      const bIco = tasto('azione', '📲 Nome e icona nuovi', apriTrasloco);
+      bIco.id = 'voceTrasloco';
+      bIco.appendChild(el('small', '', 'Per avere «' + ED.titolo + '» con l\'icona nuova sulla schermata Home: si porta tutto su un\'icona nuova.'));
+      azioni.appendChild(bIco);
+
       const bZero = tasto('azione', '🧨 Ricomincia da zero', ricomincia);
       bZero.style.color = 'var(--critico)';
       bZero.disabled = !n;
@@ -1715,6 +1837,65 @@
       info.appendChild(aggiorna);
       corpo.appendChild(info);
     });
+  }
+
+  // ================================================================ trasloco su un'icona nuova
+  // L'iPhone prende nome e icona solo quando si aggiunge l'app alla schermata Home e non li aggiorna più (verificato il
+  // 10/11/2026); ogni icona ha poi la sua memoria. Per avere quelli nuovi si aggiunge di nuovo l'app e ci si portano
+  // i dati: «Copia tutto» qui, «Incolla dalla vecchia icona» nell'icona nuova, che parte vuota.
+  function apriTrasloco() {
+    apriFoglio('Nome e icona nuovi', corpo => {
+      corpo.appendChild(el('p', '', 'L\'iPhone mette nome e icona solo quando aggiungi l\'app alla schermata Home, e poi non li cambia più. Per avere «' + ED.titolo + '» con l\'icona nuova va aggiunta di nuovo. L\'icona nuova parte vuota: i movimenti ce li porti così.'));
+      const passi = el('ol', 'passi');
+      const n = stato.movimenti.length;
+      const p1 = el('li', '', '');
+      p1.appendChild(el('strong', '', 'Copia tutto. '));
+      p1.appendChild(document.createTextNode(n + (n === 1 ? ' movimento' : ' movimenti') + ', fissi, categorie, saldo e tasse. Per sicurezza incollalo anche in Note.'));
+      const copia = tasto('tasto-primario', '📋 Copia tutto', async () => {
+        const ok = await copiaTesto(testoEsportazione());
+        if (!ok) { mostraToast('Non sono riuscito a copiare'); return; }
+        segnaBackup();
+        copia.textContent = '✓ Copiato';
+        mostraToast('Copiato tutto: ora apri Safari');
+      });
+      copia.id = 'copiaTrasloco';
+      copia.style.marginTop = '8px';
+      p1.appendChild(copia);
+      passi.appendChild(p1);
+      const indirizzo = location.origin + location.pathname.replace(/index\.html$/, '');
+      const p2 = el('li', '', '');
+      p2.appendChild(el('strong', '', 'Aggiungi l\'app di nuovo. '));
+      p2.appendChild(document.createTextNode('Apri Safari, vai su '));
+      p2.appendChild(el('span', 'indirizzo', indirizzo.replace(/^https?:\/\//, '')));
+      p2.appendChild(document.createTextNode(', tocca Condividi (il quadrato con la freccia) → «Aggiungi alla schermata Home» → Aggiungi. Il nome lo puoi accorciare lì.'));
+      passi.appendChild(p2);
+      const p3 = el('li', '', '');
+      p3.appendChild(el('strong', '', 'Apri l\'icona nuova '));
+      p3.appendChild(document.createTextNode('e tocca «📥 Incolla dalla vecchia icona», sotto i movimenti.'));
+      passi.appendChild(p3);
+      const p4 = el('li', '', '');
+      p4.appendChild(el('strong', '', 'Solo quando nell\'icona nuova vedi i tuoi movimenti, '));
+      p4.appendChild(document.createTextNode('cancella quella vecchia: tienila premuta → Rimuovi app. Prima no: con l\'icona se ne vanno anche i suoi dati.'));
+      passi.appendChild(p4);
+      corpo.appendChild(passi);
+      corpo.appendChild(el('p', 'nota', 'Nell\'icona nuova sfondo e microfono si scelgono di nuovo, e «Preciso» va riscaricato (250 MB, meglio col Wi-Fi): ogni icona ha la sua memoria.'));
+    });
+  }
+
+  // Nell'icona nuova, vuota: legge dagli appunti la «Copia tutto» della vecchia. Se il telefono non lascia leggere gli
+  // appunti, si apre «Importa» per incollarla a mano.
+  async function incollaDallaVecchia() {
+    let testo = '';
+    try { testo = await navigator.clipboard.readText(); } catch (e) { testo = ''; }
+    if (!/^\d{4}-\d{2}-\d{2};/m.test(testo)) {
+      apriImporta();
+      mostraToast('Tieni premuto nel riquadro → Incolla, poi Importa');
+      return;
+    }
+    const e = importaTesto(testo);
+    generaRicorrenti(true);
+    disegna();
+    mostraToast(e.aggiunti ? 'Arrivati dalla vecchia icona: ' + e.aggiunti + (e.aggiunti === 1 ? ' movimento' : ' movimenti') : 'Nessun movimento nuovo da aggiungere');
   }
 
   function apriImporta() {
@@ -2220,6 +2401,6 @@
   window.__conti = {
     versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, testoLeggibile, importaTesto,
     generaRicorrenti, saldoAttuale, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
-    materializza, migra, apriEsporta, statoVoce: () => statoVoce, versionePronta: () => versionePronta
+    materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta
   };
 })();

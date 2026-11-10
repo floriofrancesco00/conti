@@ -397,3 +397,20 @@ body.in-ascolto .segna { border-color: rgba(230, 103, 103, 0.7); box-shadow: 0 0
 .foglio:has(.angolo) h2 { padding-right: 118px; }
 /* mentre ascolta o trascrive, sotto il riquadro solo lo stato della voce */
 body.voce-attiva .suggerimento { display: none; }
+
+/* spese ricorrenti: i giorni del mese da toccare (10/11/2026) */
+.giorni-mese { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; margin-top: 8px; }
+.giorno-mese { min-height: 44px; border-radius: 12px; border: 1px solid var(--bordo, rgba(255,255,255,.14));
+  background: var(--superficie-2, rgba(255,255,255,.06)); color: inherit; font: inherit; font-weight: 600; font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+.giorno-mese[aria-pressed="true"] { background: var(--accento, #2f6fd6); border-color: var(--accento, #2f6fd6); color: #fff; }
+/* i fissi del mese che devono ancora arrivare */
+.mov.in-arrivo { opacity: .72; }
+.mov.in-arrivo .mov-importo { font-style: italic; }
+.giorno-titolo.in-arrivo { opacity: .8; }
+
+/* trasloco su un'icona nuova: i passi */
+.passi { margin: 12px 0 0; padding-left: 22px; display: grid; gap: 12px; line-height: 1.4; }
+.passi li::marker { font-weight: 700; color: var(--accento); }
+.passi .tasto-primario { display: block; width: 100%; }
+.indirizzo { font-weight: 600; word-break: break-all; -webkit-user-select: all; user-select: all; }

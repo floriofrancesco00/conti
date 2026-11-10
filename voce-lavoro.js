@@ -6,8 +6,11 @@
    Se il telefono non riesce a far partire il worker, voce.js carica questo stesso file nella pagina
    (window.VoceLavoro.gestisci): più lento a rispondere ai tocchi mentre trascrive, ma funziona. */
 const LIBRERIA = 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.3.2';
-// Vocabolario di partenza: solo parole, niente numeri (coi numeri d'esempio Whisper li copiava).
-const VOCABOLARIO = 'Spese ed entrate in euro: provvigione, stipendio, ricevuto, PAC su eToro, Bitcoin, Esselunga, Fineco, caffè, palestra, scherma, bolletta, benzina, tabacchi, cioccolato.';
+// Vocabolario di partenza: solo parole, niente numeri (coi numeri d'esempio Whisper li copiava). Il 10/11/2026 sera
+// allungato con le parole di tutti i giorni che la voce sentiva male («Scena» per cena, «carameli», «Parkeggio»).
+const VOCABOLARIO = 'Spese ed entrate in euro e centesimi: provvigione, stipendio, rimborso, ricevuto, PAC su eToro, Bitcoin, ' +
+  'Esselunga, Fineco, supermercato, caffè, colazione, pranzo, cena, aperitivo, dolcetto, caramelle, gelato, parcheggio, ' +
+  'benzina, palestra, scherma, bolletta, affitto, abbonamento, Spotify, Netflix, Amazon, tabacchi, cioccolato, ogni mese.';
 // Frasi che Whisper inventa sul silenzio (soprattutto in italiano), e il vocabolario ricopiato
 const INVENTATE = /sottotitol|amara\.org|grazie per la visione|iscriviti al canale|spese ed entrate in euro/i;
 
