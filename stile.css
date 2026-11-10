@@ -395,3 +395,5 @@ body.in-ascolto .segna { border-color: rgba(230, 103, 103, 0.7); box-shadow: 0 0
 .scelta-modello[aria-pressed="true"] { border-color: var(--accento); box-shadow: inset 0 0 0 1px var(--accento); }
 .foglio .campo input[type=date] { -webkit-appearance: none; appearance: none; }
 .foglio:has(.angolo) h2 { padding-right: 118px; }
+/* mentre ascolta o trascrive, sotto il riquadro solo lo stato della voce */
+body.voce-attiva .suggerimento { display: none; }

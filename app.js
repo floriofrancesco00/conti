@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.10-1235';
+  const VERSIONE = '2026.11.10-1347';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -47,6 +47,7 @@
       else v.categoria = nome(v.tipo, v.categoria);
       delete v.segno;
     }
+    if (!Array.isArray(s.tasse.categorie)) s.tasse.categorie = [];
     s.tasse.categorie = s.tasse.categorie.map(c => nome('entrata', c));
     // 2. l'elenco personale delle categorie: nomi e simboli nuovi
     if (s.categorie && typeof s.categorie === 'object') {
@@ -239,9 +240,14 @@
   const foglioAperto = () => !$('foglio').hidden && !$('foglio').classList.contains('via');
 
   // trascinare in giù: parte solo se il foglio è già scorso in cima (o dalla maniglia), così lo scorrimento resta normale
+  // Dopo un trascinamento o una pressione lunga, il dito che si alza non deve «toccare» quello che c'è sotto
+  // (un bottone del foglio, o del foglio nuovo che si è appena aperto sotto il dito).
+  let silenzioClic = 0;
+  document.addEventListener('click', e => { if (performance.now() < silenzioClic) { e.stopPropagation(); e.preventDefault(); } }, true);
+
   (function trascinaFoglio() {
     const f = $('foglio');
-    let y0 = null, dy = 0, t0 = 0, attivo = false, bloccaClic = 0;
+    let y0 = null, dy = 0, t0 = 0, attivo = false;
     f.addEventListener('touchstart', e => {
       if (e.touches.length !== 1 || f.classList.contains('via')) { y0 = null; return; }
       const daManiglia = !!e.target.closest('.maniglia');
@@ -251,29 +257,30 @@
     f.addEventListener('touchmove', e => {
       if (y0 === null) return;
       dy = e.touches[0].clientY - y0;
+      // in cima e verso il basso: subito, se no l'iPhone fa partire il «rimbalzo» e non lo lascia più fermare
+      if (dy > 0 && f.scrollTop <= 0 && e.cancelable) e.preventDefault();
       if (!attivo) {
         if (dy > 6 && f.scrollTop <= 0) attivo = true;
         else { if (dy < -6) y0 = null; return; }
       }
-      e.preventDefault();
       f.classList.add('trascina');
       f.style.transform = 'translateY(' + Math.max(0, dy) + 'px)';
       $('velo').style.opacity = String(Math.max(0.15, 1 - dy / 450));
     }, { passive: false });
-    const fine = () => {
+    const fine = e => {
       if (y0 === null) return;
       y0 = null;
       f.classList.remove('trascina');
       if (!attivo) return;
       attivo = false;
-      bloccaClic = performance.now() + 350;   // il dito che si alza non deve «toccare» un bottone
+      silenzioClic = performance.now() + 350;
+      if (e && e.cancelable) e.preventDefault();
       const veloce = dy / Math.max(1, performance.now() - t0) > 0.5;
       if (dy > 120 || (dy > 50 && veloce)) chiudiFoglio(true);
       else { f.style.transform = ''; $('velo').style.opacity = ''; }
     };
     f.addEventListener('touchend', fine);
     f.addEventListener('touchcancel', fine);
-    f.addEventListener('click', e => { if (performance.now() < bloccaClic) { e.stopPropagation(); e.preventDefault(); } }, true);
   })();
 
   function el(tag, classe, testo) {
@@ -325,7 +332,10 @@
       timer = setTimeout(() => { timer = null; tenuto = true; if (navigator.vibrate) navigator.vibrate(12); alTenere(); }, 520);
     }, { passive: true });
     b.addEventListener('touchmove', e => { const t = e.touches[0]; if (Math.hypot(t.clientX - x0, t.clientY - y0) > 10) ferma(); }, { passive: true });
-    b.addEventListener('touchend', ferma);
+    b.addEventListener('touchend', e => {
+      ferma();
+      if (tenuto) { silenzioClic = performance.now() + 250; if (e.cancelable) e.preventDefault(); }
+    });
     b.addEventListener('touchcancel', ferma);
     b.addEventListener('contextmenu', e => e.preventDefault());
     b.addEventListener('click', () => { if (tenuto) { tenuto = false; return; } alToccare(); });
@@ -341,7 +351,7 @@
       if (inModifica) corpo.appendChild(el('p', 'nota-su', 'Tocca una categoria per cambiarle nome o simbolo, nasconderla o eliminarla.'));
       const g = el('div', 'griglia' + (inModifica ? ' in-modifica' : ''));
       for (const c of categorie(tipo, inModifica)) {
-        const b = el('button', 'opzione' + (c.nascosta ? ' spenta' : ''), c.icona + '  ' + c.nome + (inModifica ? '' : ''));
+        const b = el('button', 'opzione' + (c.nascosta ? ' spenta' : ''), c.icona + '  ' + c.nome);
         b.type = 'button';
         if (inModifica) b.appendChild(el('span', 'matita', c.nascosta ? 'nascosta' : '✎'));
         b.setAttribute('aria-pressed', String(!inModifica && c.nome === corrente));
@@ -378,7 +388,7 @@
       const g = el('div', 'griglia');
       g.style.marginTop = ripeti ? '12px' : '0';
       const base = oggi();
-      [['Oggi', 0], ['Ieri', -1], ['L’altro ieri', -2]].forEach(([nome, n]) => {
+      [['Oggi', 0], ['Ieri', -1], ["L'altro ieri", -2]].forEach(([nome, n]) => {
         const iso = A.isoDa(new Date(base.getFullYear(), base.getMonth(), base.getDate() + n));
         const b = tasto('opzione', nome, () => { chiudiFoglio(); alScegliere(iso); });
         b.setAttribute('aria-pressed', String(iso === corrente));
@@ -1868,6 +1878,7 @@
     bottoneVoce.classList.toggle('lavora', nome === 'scarico' || nome === 'trascrivo');
     bottoneVoce.setAttribute('aria-label', nome === 'ascolto' ? 'Basta, ho finito' : 'Detta a voce');
     document.body.classList.toggle('in-ascolto', nome === 'ascolto');
+    document.body.classList.toggle('voce-attiva', nome !== 'fermo');
     if (nome === 'trascrivo') {
       const scrivi = () => mostraStatoVoce('✍️ Trascrivo… ' + secondi(performance.now() - inizioFase));
       scrivi();
@@ -1982,9 +1993,15 @@
     const c = pref.voceInCorso;
     if (!c) return;
     pref.voceInCorso = null;
-    if (c.modello === 'preciso' && Date.now() - c.quando < 120000 && scaricati().veloce) {
-      pref.voceModello = 'veloce';
-      setTimeout(() => mostraToast('«Preciso» ha fatto chiudere l\'app: uso «Veloce». Menù → Microfono per riprovare'), 800);
+    if (c.modello === 'preciso' && Date.now() - c.quando < 120000) {
+      if (scaricati().veloce) {
+        pref.voceModello = 'veloce';
+        setTimeout(() => mostraToast('«Preciso» ha fatto chiudere l\'app: uso «Veloce». Menù → Microfono per riprovare'), 800);
+      } else {
+        // senza «Veloce» non si ricarica da solo all'apertura, se no l'app si richiuderebbe ogni volta
+        pref.voceModello = null;
+        setTimeout(() => mostraToast('«Preciso» ha fatto chiudere l\'app: scegli «Veloce» in Menù → Microfono'), 800);
+      }
     }
     scriviPref();
   })();
