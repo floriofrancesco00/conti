@@ -3,7 +3,7 @@
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
 importScripts('edizione.js');
 const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
-const VERSIONE = '2026.11.10-1347';
+const VERSIONE = '2026.11.10-1556';
 const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
@@ -37,6 +37,11 @@ self.addEventListener('install', evento => {
       .then(cache => Promise.all(SFONDI.map(u => cache.match(u).then(c => c || cache.add(u).catch(() => {})))))
       .then(() => self.skipWaiting())
   );
+});
+
+// La pagina chiede quale versione ha il service worker («Cerca aggiornamenti»): Safari non lo dice da solo.
+self.addEventListener('message', evento => {
+  if (evento.data === 'versione' && evento.ports && evento.ports[0]) evento.ports[0].postMessage(VERSIONE);
 });
 
 self.addEventListener('activate', evento => {

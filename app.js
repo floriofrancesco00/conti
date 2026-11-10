@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.10-1347';
+  const VERSIONE = '2026.11.10-1556';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -199,6 +199,49 @@
   }
   function nascondiToast() { $('toast').hidden = true; }
 
+  // ================================================================ aggiornamenti
+  // La versione nuova arriva col service worker. Safari risponde a reg.update() solo a installazione finita
+  // (provato su WebKit il 10/11/2026): reg.installing e reg.waiting sono già vuoti e la versione vecchia diceva
+  // «È già l'ultima versione» con quella nuova già attiva. Si chiede quindi al service worker la sua versione.
+  // Se arriva mentre lui sta facendo qualcosa, si ricarica appena può: chiuso il foglio o tornando sull'app.
+  let versionePronta = false;
+  const puoRicaricare = () => !campoFrase.value.trim() && statoVoce === 'fermo' &&
+    ($('toast').hidden || $('toastAzione').hidden || $('toastAzione').textContent !== 'Annulla');
+  function ricaricaSePuoi() {
+    if (!versionePronta || foglioAperto() || !puoRicaricare()) return false;
+    location.reload();
+    return true;
+  }
+  function versioneDelServiceWorker(reg) {
+    const sw = (reg && reg.active) || navigator.serviceWorker.controller;
+    if (!sw) return Promise.resolve(null);
+    return new Promise(ok => {
+      const canale = new MessageChannel();
+      canale.port1.onmessage = e => ok(e.data);
+      sw.postMessage('versione', [canale.port2]);
+      setTimeout(() => ok(null), 3000);
+    });
+  }
+  async function cercaAggiornamenti() {
+    if (!navigator.serviceWorker) return;
+    const reg = await navigator.serviceWorker.getRegistration();
+    if (!reg) return mostraToast('Qui gli aggiornamenti non si controllano');
+    mostraToast('Cerco la versione nuova…');
+    await reg.update().catch(() => {});
+    const nuovo = reg.installing || reg.waiting;
+    if (nuovo) await new Promise(ok => {
+      const guarda = () => { if (nuovo.state === 'activated' || nuovo.state === 'redundant') ok(); };
+      nuovo.addEventListener('statechange', guarda);
+      guarda();
+      setTimeout(ok, 60000);
+    });
+    const v = await versioneDelServiceWorker(reg);
+    if (v && v !== VERSIONE) versionePronta = true;
+    if (!versionePronta) return mostraToast('È già l\'ultima versione');
+    if (puoRicaricare()) { mostraToast('Aggiorno…'); setTimeout(() => location.reload(), 300); }
+    else mostraToast('Nuova versione pronta', 'Aggiorna', () => location.reload());
+  }
+
   // ================================================================ foglio dal basso
   // Si chiude toccando il velo, col tasto Esc o trascinandolo in giù (dal 10/11/2026), come i fogli dell'iPhone.
   let alChiudereFoglio = null, timerFoglio = null;
@@ -236,6 +279,7 @@
       f.hidden = true; v.hidden = true; f.classList.remove('via'); f.style.transform = ''; v.style.opacity = '';
     }
     if (cb) cb();
+    if (versionePronta) setTimeout(ricaricaSePuoi, 400);
   }
   const foglioAperto = () => !$('foglio').hidden && !$('foglio').classList.contains('via');
 
@@ -1663,12 +1707,9 @@
       const crediti = tasto('tasto-secondario', 'Crediti delle foto', apriCrediti);
       crediti.style.marginTop = '12px';
       corpo.appendChild(crediti);
-      const info = el('p', 'nota', 'Versione ' + VERSIONE + '. ');
-      const aggiorna = tasto('tasto-secondario', 'Cerca aggiornamenti', async () => {
-        if (!navigator.serviceWorker) return;
-        const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) { await reg.update().catch(() => {}); mostraToast(reg.installing || reg.waiting ? 'Aggiornamento in arrivo…' : 'È già l\'ultima versione'); }
-      });
+      const info = el('p', 'nota', 'Versione ' + VERSIONE + (versionePronta ? ' · è pronta quella nuova.' : '. '));
+      const aggiorna = tasto('tasto-secondario', versionePronta ? 'Aggiorna ora' : 'Cerca aggiornamenti',
+        () => versionePronta ? location.reload() : cercaAggiornamenti());
       aggiorna.style.marginTop = '8px';
       info.appendChild(el('br'));
       info.appendChild(aggiorna);
@@ -2164,15 +2205,14 @@
   // ================================================================ funzionamento senza rete
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     const avevaController = !!navigator.serviceWorker.controller;
-    let ricaricato = false;
     navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!avevaController || ricaricato) return;
-      ricaricato = true;
-      if (!campoFrase.value.trim() && !foglioAperto() && statoVoce === 'fermo') location.reload();
-      else mostraToast('Nuova versione pronta', 'Aggiorna', () => location.reload());
+      if (!avevaController || versionePronta) return;   // la prima installazione non cambia niente da mostrare
+      versionePronta = true;
+      if (!ricaricaSePuoi()) mostraToast('Nuova versione pronta', 'Aggiorna', () => location.reload());
     });
     navigator.serviceWorker.register('sw.js').then(reg => {
-      document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
+      // tornando sull'app: prima la versione già arrivata, se no si guarda se ce n'è una
+      document.addEventListener('visibilitychange', () => { if (!document.hidden && !ricaricaSePuoi()) reg.update().catch(() => {}); });
     }).catch(() => {});
   }
 
@@ -2180,6 +2220,6 @@
   window.__conti = {
     versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, testoLeggibile, importaTesto,
     generaRicorrenti, saldoAttuale, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
-    materializza, migra, apriEsporta, statoVoce: () => statoVoce
+    materializza, migra, apriEsporta, statoVoce: () => statoVoce, versionePronta: () => versionePronta
   };
 })();
