@@ -15,8 +15,8 @@ const VOCABOLARIO = 'Spese ed entrate in euro e centesimi: provvigione, stipendi
 const INVENTATE = /sottotitol|amara\.org|grazie per la visione|iscriviti al canale|spese ed entrate in euro/i;
 
 let T = null;
-let attuale = null;    // { modello, processor, tokenizer, model }
-let inCorso = null;    // { modello, promessa } mentre si carica
+let attuale = null;    // { chiave, processor, tokenizer, model, gpu }
+let inCorso = null;    // { chiave, promessa } mentre si carica
 
 async function libreria() {
   if (!T) {
@@ -26,9 +26,20 @@ async function libreria() {
   return T;
 }
 
-function carica(modello, dtype, rispondi) {
-  if (attuale && attuale.modello === modello) return Promise.resolve(attuale);
-  if (inCorso && inCorso.modello === modello) return inCorso.promessa;
+// La scheda grafica c'è davvero? WebGPU nel worker, un adattatore, e i numeri a 16 bit (il codificatore «fp16»).
+async function schedaGrafica() {
+  try {
+    if (!self.navigator || !self.navigator.gpu) return false;
+    const a = await self.navigator.gpu.requestAdapter();
+    return !!(a && a.features && a.features.has('shader-f16'));
+  } catch (e) { return false; }
+}
+
+function carica(modello, dtype, rispondi, device) {
+  device = device || 'wasm';
+  const chiave = JSON.stringify([modello, dtype, device]);
+  if (attuale && attuale.chiave === chiave) return Promise.resolve(attuale);
+  if (inCorso && inCorso.chiave === chiave) return inCorso.promessa;
   const promessa = (async () => {
     const L = await libreria();
     if (attuale) {   // un modello alla volta: la memoria del telefono non basta per due
@@ -42,15 +53,26 @@ function carica(modello, dtype, rispondi) {
       const v = Object.values(file);
       rispondi({ tipo: 'progresso', caricati: v.reduce((a, x) => a + x.caricati, 0), totale: v.reduce((a, x) => a + x.totale, 0) });
     };
-    const [processor, tokenizer, model] = await Promise.all([
+    // sulla scheda grafica se c'è; se no, o se non riesce a partire, lo stesso modello col processore
+    const vuoleGpu = typeof device === 'object' && Object.values(device).includes('webgpu');
+    const gpu = vuoleGpu && await schedaGrafica();
+    const conProcessore = typeof dtype === 'object' ? 'q8' : dtype;
+    const [processor, tokenizer] = await Promise.all([
       L.AutoProcessor.from_pretrained(modello, { progress_callback: cb }),
-      L.AutoTokenizer.from_pretrained(modello, { progress_callback: cb }),
-      L.WhisperForConditionalGeneration.from_pretrained(modello, { dtype, device: 'wasm', progress_callback: cb })
+      L.AutoTokenizer.from_pretrained(modello, { progress_callback: cb })
     ]);
-    attuale = { modello, processor, tokenizer, model };
+    let model = null, suGpu = false;
+    if (gpu) {
+      try {
+        model = await L.WhisperForConditionalGeneration.from_pretrained(modello, { dtype, device, progress_callback: cb });
+        suGpu = true;
+      } catch (e) { model = null; }
+    }
+    if (!model) model = await L.WhisperForConditionalGeneration.from_pretrained(modello, { dtype: conProcessore, device: 'wasm', progress_callback: cb });
+    attuale = { chiave, processor, tokenizer, model, gpu: suGpu };
     return attuale;
   })();
-  inCorso = { modello, promessa };
+  inCorso = { chiave, promessa };
   promessa.then(() => { inCorso = null; }, () => { inCorso = null; });
   return promessa;
 }
@@ -72,6 +94,7 @@ async function trascrivi(m, audio, parole) {
 }
 
 const info = () => ({
+  gpu: !!(attuale && attuale.gpu),
   isolato: !!self.crossOriginIsolated,
   thread: T && T.env && T.env.backends && T.env.backends.onnx && T.env.backends.onnx.wasm ? T.env.backends.onnx.wasm.numThreads || null : null,
   core: (self.navigator && self.navigator.hardwareConcurrency) || null
@@ -82,10 +105,10 @@ async function gestisci(m, rispondi) {
   try {
     if (m.tipo === 'carica') {
       const t0 = performance.now();
-      await carica(m.modello, m.dtype, rispondi);
+      await carica(m.modello, m.dtype, rispondi, m.device);
       rispondi(Object.assign({ tipo: 'pronto', id: m.id, ms: Math.round(performance.now() - t0) }, info()));
     } else if (m.tipo === 'trascrivi') {
-      const mod = await carica(m.modello, m.dtype, rispondi);
+      const mod = await carica(m.modello, m.dtype, rispondi, m.device);
       const t0 = performance.now();
       const testo = await trascrivi(mod, m.audio, m.parole);
       rispondi(Object.assign({ tipo: 'testo', id: m.id, testo, ms: Math.round(performance.now() - t0) }, info()));

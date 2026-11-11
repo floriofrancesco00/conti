@@ -14,8 +14,15 @@
 (function () {
   'use strict';
 
+  // «Preciso veloce» (11/11/2026): lo stesso Whisper small, ma la parte pesante (il codificatore, che lavora sempre su
+  // 30 secondi di audio anche per una frase di 2) gira sulla scheda grafica con WebGPU, che Safari 26 ha. Sul PC:
+  // 3,2-3,7 s a frase invece di 9-10 col processore, stesse parole. Il decodificatore resta quello di «Preciso»:
+  // se «Preciso» c'è già, si scarica solo il codificatore (177 MB). Se la scheda grafica non va, il worker torna da
+  // solo al processore.
   const MODELLI = {
     preciso: { id: 'onnx-community/whisper-small', dtype: 'q8', mb: 250, nome: 'Preciso' },
+    rapido: { id: 'onnx-community/whisper-small', dtype: { encoder_model: 'fp16', decoder_model_merged: 'q8' },
+      device: { encoder_model: 'webgpu', decoder_model_merged: 'wasm' }, mb: 177, mbDaZero: 334, nome: 'Preciso veloce', gpu: true },
     veloce: { id: 'onnx-community/whisper-base', dtype: 'q8', mb: 78, nome: 'Veloce' }
   };
 
@@ -78,7 +85,7 @@
     const M = MODELLI[chiave];
     alProgresso = alProg ? (m => alProg(Math.min(0.99, m.caricati / Math.max(m.totale || 0, M.mb * 1e6)))) : null;
     if (pronto && pronto.chiave === chiave) return pronto.promessa;
-    const promessa = chiedi({ tipo: 'carica', modello: M.id, dtype: M.dtype });
+    const promessa = chiedi({ tipo: 'carica', modello: M.id, dtype: M.dtype, device: M.device || 'wasm' });
     pronto = { chiave, promessa };
     promessa.catch(() => { if (pronto && pronto.promessa === promessa) pronto = null; });
     return promessa;
@@ -89,8 +96,8 @@
     const M = MODELLI[chiave];
     prepara(chiave);
     // si copia (non si trasferisce): se il worker non parte, lo stesso audio si rimanda alla pagina
-    const r = await chiedi({ tipo: 'trascrivi', modello: M.id, dtype: M.dtype, audio: audio.slice(), parole: parole || [] });
-    return { testo: r.testo || '', ms: r.ms, isolato: r.isolato, thread: r.thread };
+    const r = await chiedi({ tipo: 'trascrivi', modello: M.id, dtype: M.dtype, device: M.device || 'wasm', audio: audio.slice(), parole: parole || [] });
+    return { testo: r.testo || '', ms: r.ms, isolato: r.isolato, thread: r.thread, gpu: !!r.gpu };
   }
 
   // Cancella dalla memoria del telefono i file di un modello (per liberare spazio).
@@ -101,7 +108,12 @@
     for (const nome of await caches.keys()) {
       if (!/transformers/i.test(nome)) continue;
       const c = await caches.open(nome);
-      for (const r of await c.keys()) if (r.url.includes(M.id + '/')) { await c.delete(r); tolti++; }
+      for (const r of await c.keys()) {
+        if (!r.url.includes(M.id + '/')) continue;
+        if (chiave === 'rapido' && !/encoder_model_fp16/.test(r.url)) continue;
+        if (chiave === 'preciso' && /encoder_model_fp16/.test(r.url)) continue;
+        await c.delete(r); tolti++;
+      }
     }
     if (pronto && pronto.chiave === chiave) { try { lavoro.terminate(); } catch (e) { /* già fermo */ } lavoro = null; pronto = null; }
     return tolti;
@@ -190,6 +202,93 @@
     return { ferma: () => ferma(false), annulla: () => ferma(true), finito };
   }
 
+  // ---------------------------------------------------------------- il riconoscimento di Apple
+  // Quello della dettatura della tastiera: veloce, le parole arrivano mentre si parla, e capisce l'italiano molto
+  // meglio di Whisper small. Nelle app della schermata Home fino a iOS 18 non c'era (WebKit bug 225298); per iOS 26
+  // nessuna fonte lo dice (cercato l'11/11/2026): lo prova l'app al primo tocco, e se non va lo dice e torna a Whisper.
+  // La voce la riconosce iOS, come con la dettatura: non è più l'app a farlo.
+  const RiconoscitoreApple = window.SpeechRecognition || window.webkitSpeechRecognition;
+  // Errori che vogliono dire «qui non c'è»: si torna a Whisper e lo si ricorda fino al prossimo aggiornamento di iOS.
+  const APPLE_ASSENTE = ['service-not-allowed', 'not-allowed', 'audio-capture', 'language-not-supported', 'non-parte'];
+  // opz: alVia(), alTesto(testo) mentre parla, alTempo(secondi, sentito). Come ascolta(): { ferma, annulla, finito };
+  // finito dà { testo, parlato, annullato, secondi } o fallisce con err.codice (vedi APPLE_ASSENTE, o 'network').
+  function ascoltaApple(opz) {
+    opz = opz || {};
+    const SILENZIO = (opz.silenzio || 2.0) * 1000, MASSIMO = 30000, SENZA_VOCE = 8000, PARTENZA = 3500;
+    const r = new RiconoscitoreApple();
+    r.lang = 'it-IT';
+    r.continuous = true;        // si ferma quando lo decide l'app: 2 s di silenzio dopo l'ultima parola, o ■
+    r.interimResults = true;    // le parole mentre parla
+    r.maxAlternatives = 1;
+    let partito = false, fermata = false, concluso = false, annullato = false, testo = '';
+    let t0 = performance.now(), ultimo = 0, risolvi, rifiuta;
+    const finito = new Promise((a, b) => { risolvi = a; rifiuta = b; });
+    const secondi = () => (performance.now() - t0) / 1000;
+    const concludi = () => {
+      if (concluso) return;
+      concluso = true;
+      clearInterval(orologio);
+      risolvi(annullato ? { testo: '', parlato: false, annullato: true, secondi: secondi() } : { testo, parlato: !!testo, secondi: secondi() });
+    };
+    const fallisci = codice => {
+      if (concluso) return;
+      concluso = true; fermata = true;
+      clearInterval(orologio);
+      try { r.abort(); } catch (e) { /* già fermo */ }
+      const err = new Error('riconoscimento di Apple: ' + codice);
+      err.codice = codice;
+      rifiuta(err);
+    };
+    const ferma = buttaVia => {
+      if (fermata) return;
+      fermata = true;
+      annullato = !!buttaVia;
+      try { if (buttaVia) r.abort(); else r.stop(); } catch (e) { /* già fermo */ }
+      setTimeout(concludi, 1500);   // stop() fa arrivare le ultime parole e poi «end»: se «end» non arriva, si chiude lo stesso
+    };
+    // Si ricostruisce il testo da tutti i risultati a ogni evento. iOS a volte ripete in un risultato tutto il già
+    // detto: se un pezzo comincia con quello che c'è già, lo sostituisce invece di accodarsi.
+    const leggi = e => {
+      const pezzi = [];
+      for (let i = 0; i < e.results.length; i++) {
+        const alt = e.results[i] && e.results[i][0];
+        const t = alt && alt.transcript ? String(alt.transcript).trim() : '';
+        if (!t) continue;
+        const finora = pezzi.join(' ');
+        if (finora && t.toLowerCase().startsWith(finora.toLowerCase())) { pezzi.length = 0; pezzi.push(t); }
+        else pezzi.push(t);
+      }
+      return pezzi.join(' ').replace(/\s+/g, ' ').trim();
+    };
+    r.onstart = () => { partito = true; t0 = performance.now(); if (opz.alVia) opz.alVia(); };
+    r.onaudiostart = () => { partito = true; };
+    r.onresult = e => {
+      partito = true;
+      const t = leggi(e);
+      if (t && t !== testo) { testo = t; ultimo = performance.now(); if (opz.alTesto && !fermata) opz.alTesto(testo); }
+    };
+    r.onerror = e => {
+      const codice = (e && e.error) || 'errore';
+      if (codice === 'no-speech' || (codice === 'aborted' && fermata)) { fermata = true; concludi(); return; }
+      if (testo) { fermata = true; concludi(); return; }   // qualcosa l'aveva sentito: si tiene
+      fallisci(codice);
+    };
+    r.onend = () => {
+      if (!partito && !concluso) { fallisci('non-parte'); return; }
+      fermata = true;
+      concludi();
+    };
+    const orologio = setInterval(() => {
+      if (concluso || fermata) return;
+      const ora = performance.now();
+      if (!partito) { if (ora - t0 > PARTENZA) fallisci('non-parte'); return; }
+      if (opz.alTempo) opz.alTempo(secondi(), !!testo);
+      if ((testo && ora - ultimo > SILENZIO) || (!testo && ora - t0 > SENZA_VOCE) || ora - t0 > MASSIMO) ferma(false);
+    }, 200);
+    try { r.start(); } catch (e) { setTimeout(() => fallisci('non-parte'), 0); }
+    return { ferma: () => ferma(false), annulla: () => ferma(true), finito };
+  }
+
   // Voce bassa (telefono lontano): si alza fino a 6 volte, così Whisper la sente meglio.
   function normalizza(audio) {
     let picco = 0;
@@ -232,6 +331,10 @@
   window.Voce = {
     disponibile: !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext) && window.Worker),
     isolato: !!window.crossOriginIsolated,
+    apple: !!RiconoscitoreApple,
+    APPLE_ASSENTE,
+    ascoltaApple,
+    gpu: !!navigator.gpu,   // la pagina ha WebGPU; se il worker non ce l'ha, «Preciso veloce» torna al processore da solo
     MODELLI,
     prepara,
     trascrivi,

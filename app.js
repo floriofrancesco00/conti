@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.11-1415';
+  const VERSIONE = '2026.11.11-1839';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -218,7 +218,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'più veloce con tanti movimenti, e per l’icona nuova «Incolla» è in cima';
+  const NOVITA = 'microfono: prima prova quello di Apple, se no c’è «Preciso veloce» con la scheda grafica; correttore della tastiera acceso';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -2195,10 +2195,12 @@
     });
   }
 
-  // ================================================================ microfono (Whisper dentro il telefono, voce.js)
+  // ================================================================ microfono (voce.js)
   // Rifatto il 10/11/2026. Un tocco: ascolta (si vede il tempo e l'onda della voce); secondo tocco: basta.
   // Si ferma anche da solo dopo 2 s di silenzio. Due modelli: «Preciso» (250 MB, consigliato) e «Veloce» (78 MB).
   // Il modello scelto si carica appena si apre l'app, in un worker: al tocco è già pronto.
+  // Dall'11/11/2026 («continua a fare schifo, trascrive molto lentamente»): prima il riconoscimento di Apple, se
+  // l'iPhone lo lascia usare all'app (le parole arrivano mentre parla); se no Whisper, anche sulla scheda grafica.
   let statoVoce = 'fermo';   // fermo | scarico | ascolto | trascrivo
   let ascoltoInCorso = null, timerVoce = null, inizioFase = 0;
   const bottoneVoce = $('microfono');
@@ -2210,8 +2212,13 @@
     if (pref.voceModello && s[pref.voceModello]) return pref.voceModello;
     return null;
   }
+  // Apple: c'è in questa pagina, lui non ha scelto Whisper, e non ha già detto «qui no» con questa versione di iOS
+  // (l'indicazione del browser cambia con gli aggiornamenti: dopo un aggiornamento si riprova da solo).
+  let appleSaltaUnaVolta = false;   // senza rete Apple non va: quella volta si usa Whisper
+  const usaApple = () => !!(V && V.apple) && pref.voceMotore !== 'whisper' && pref.appleNo !== navigator.userAgent && !appleSaltaUnaVolta;
   const secondi = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
   function descriviVoce() {
+    if (usaApple()) return pref.appleSi ? 'Apple, come la dettatura: le parole arrivano mentre parli' : 'Apple, come la dettatura (si prova al primo tocco)';
     const m = modelloVoce();
     if (!m) return 'Da scaricare una volta sola: poi funziona anche senza rete.';
     const t = (pref.voceTempi || []).slice(-1)[0];
@@ -2281,12 +2288,16 @@
     const g = el('div', 'elenco-azioni');
     const s = scaricati(), attuale = modelloVoce();
     const testi = {
-      preciso: 'Sbaglia molto meno numeri e parole («43,20», «eToro»). Ci mette qualche secondo in più. Consigliato.',
+      rapido: 'Come «Preciso», ma la parte pesante la fa la scheda grafica: sul PC tre volte più veloce. ' +
+        (pref.voceGpu === false && s.rapido ? 'Su questo telefono la scheda grafica non è partita: lavora col processore.' : 'Consigliato.'),
+      preciso: 'Sbaglia molto meno numeri e parole («43,20», «eToro»). Ci mette qualche secondo in più.' + (V.gpu ? '' : ' Consigliato.'),
       veloce: 'Risponde prima, ma sbaglia più spesso («milleottocento» → 1880).'
     };
-    for (const k of ['preciso', 'veloce']) {
+    const icone = { rapido: '🚀 ', preciso: '🎯 ', veloce: '⚡ ' };
+    for (const k of (V.gpu ? ['rapido', 'preciso', 'veloce'] : ['preciso', 'veloce'])) {
       const M = V.MODELLI[k];
-      const b = tasto('azione scelta-modello', (k === 'preciso' ? '🎯 ' : '⚡ ') + M.nome + (s[k] ? (attuale === k ? ' · in uso' : ' · scaricato') : ' · ' + M.mb + ' MB da scaricare'), () => alScegliere(k));
+      const peso = k === 'rapido' && !s.preciso ? M.mbDaZero : M.mb;
+      const b = tasto('azione scelta-modello', icone[k] + M.nome + (s[k] ? (attuale === k ? ' · in uso' : ' · scaricato') : ' · ' + peso + ' MB da scaricare'), () => alScegliere(k));
       b.dataset.modello = k;
       b.setAttribute('aria-pressed', String(attuale === k));
       b.appendChild(el('small', '', testi[k]));
@@ -2295,6 +2306,7 @@
     corpo.appendChild(g);
   }
   function usaModello(k) {
+    if (pref.voceMotore !== 'whisper' && V.apple && pref.appleNo !== navigator.userAgent) pref.voceMotore = 'whisper';   // ha scelto Whisper
     if (!scaricati()[k]) { scaricaVoce(k); return; }
     pref.voceModello = k;
     scriviPref();
@@ -2319,15 +2331,35 @@
 
   function apriImpostazioniVoce() {
     apriFoglio('Microfono', corpo => {
-      corpo.appendChild(el('p', '', 'Tocca 🎙️, parla, poi tocca ■ (o fai una pausa di 2 secondi). Il riconoscimento gira dentro il telefono: la voce non esce mai.'));
+      corpo.appendChild(el('p', '', 'Tocca 🎙️, parla, poi tocca ■ (o fai una pausa di 2 secondi).'));
+      if (V.apple) {
+        const g = el('div', 'elenco-azioni');
+        const appleNo = pref.appleNo === navigator.userAgent;
+        const bA = tasto('azione', '🍎 Apple, come la dettatura' + (appleNo ? ' · qui non va' : pref.voceMotore !== 'whisper' ? ' · in uso' : ''), () => {
+          pref.voceMotore = 'apple';
+          if (appleNo) pref.appleNo = null;   // riprova
+          scriviPref();
+          chiudiFoglio();
+          mostraToast('Microfono: Apple. Tocca 🎙️ e parla');
+        });
+        bA.setAttribute('aria-pressed', String(!appleNo && pref.voceMotore !== 'whisper'));
+        bA.appendChild(el('small', '', appleNo
+          ? 'L\'iPhone non lo lascia usare a questa app. Tocca per riprovare.'
+          : 'Le parole arrivano mentre parli e capisce bene l\'italiano. La voce la riconosce iOS, come con la dettatura.'));
+        g.appendChild(bA);
+        corpo.appendChild(g);
+        corpo.appendChild(el('div', 'titoletto', 'Oppure Whisper, dentro il telefono'));
+      }
       sceltaModelli(corpo, usaModello);
       const tempi = (pref.voceTempi || []).slice(-5);
       const righe = el('div', 'aut-righe');
       const riga = (nome, valore) => { const r = el('div', 'aut-riga'); r.appendChild(el('span', '', nome)); r.appendChild(el('span', '', valore)); righe.appendChild(r); };
       riga('Ultime trascrizioni', tempi.length ? tempi.map(secondi).join(' · ') : 'nessuna ancora');
       riga('Motori insieme', V.isolato ? 'sì: ' + (navigator.hardwareConcurrency || '?') + ' core' : 'no, uno solo');
+      if (scaricati().rapido) riga('Scheda grafica', pref.voceGpu === true ? 'sì, lavora lei' : pref.voceGpu === false ? 'non partita: lavora il processore' : 'si vede alla prima trascrizione');
       corpo.appendChild(righe);
       const s = scaricati(), attuale = modelloVoce();
+      // «Preciso veloce» usa i file di «Preciso»: con quello in uso non si propone di cancellare niente
       const altro = attuale === 'preciso' ? 'veloce' : attuale === 'veloce' ? 'preciso' : null;
       if (altro && s[altro]) {
         const b = tasto('tasto-secondario', 'Libera spazio: cancella «' + V.MODELLI[altro].nome + '» (' + V.MODELLI[altro].mb + ' MB)', async () => {
@@ -2353,7 +2385,11 @@
     const c = pref.voceInCorso;
     if (!c) return;
     pref.voceInCorso = null;
-    if (c.modello === 'preciso' && Date.now() - c.quando < 120000) {
+    if (c.modello === 'rapido' && Date.now() - c.quando < 120000 && scaricati().preciso) {
+      pref.voceModello = 'preciso';
+      pref.voceGpu = false;
+      setTimeout(() => mostraToast('La scheda grafica ha fatto chiudere l\'app: uso «Preciso» col processore'), 800);
+    } else if (c.modello === 'preciso' && Date.now() - c.quando < 120000) {
       if (scaricati().veloce) {
         pref.voceModello = 'veloce';
         setTimeout(() => mostraToast('«Preciso» ha fatto chiudere l\'app: uso «Veloce». Menù → Microfono per riprovare'), 800);
@@ -2372,6 +2408,7 @@
   // carica il modello scelto in sottofondo, così al primo tocco è già pronto
   function preparaVoce() {
     const k = modelloVoce();
+    if (usaApple() && pref.appleSi) return;   // con Apple, Whisper non serve: l'app si apre più leggera
     if (!k || !V || !V.disponibile || V.caricato(k)) return;
     segnaLavoroVoce(k);
     V.prepara(k).then(() => segnaLavoroVoce(null), () => segnaLavoroVoce(null));
@@ -2380,11 +2417,12 @@
   async function scaricaVoce(k) {
     chiudiFoglio();
     const M = V.MODELLI[k];
+    const mb = k === 'rapido' && !scaricati().preciso ? M.mbDaZero : M.mb;
     fase('scarico');
-    mostraStatoVoce('Scarico «' + M.nome + '» (' + M.mb + ' MB)… 0%', 0);
+    mostraStatoVoce('Scarico «' + M.nome + '» (' + mb + ' MB)… 0%', 0);
     try {
       segnaLavoroVoce(k);
-      await V.prepara(k, p => { if (statoVoce === 'scarico') { onda.length = 0; mostraStatoVoce('Scarico «' + M.nome + '» (' + M.mb + ' MB)… ' + Math.round(p * 100) + '%', p); } });
+      await V.prepara(k, p => { if (statoVoce === 'scarico') { onda.length = 0; mostraStatoVoce('Scarico «' + M.nome + '» (' + mb + ' MB)… ' + Math.round(p * 100) + '%', p); } });
       segnaLavoroVoce(null);
       pref.voceScaricati = Object.assign({}, scaricati(), { [k]: true });
       if (k === 'veloce') pref.voceScaricata = true;
@@ -2407,9 +2445,57 @@
     }
   }
 
+  // ---- il riconoscimento di Apple: le parole compaiono nel riquadro mentre parla
+  const unisciFrase = (prima, nuovo) => (prima ? prima.replace(/[,.\s]+$/, '') + ', ' + nuovo : nuovo);
+  async function microfonoApple() {
+    const prima = campoFrase.value.trim();
+    const tempo = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+    let a;
+    try {
+      a = V.ascoltaApple({   // dentro il tocco: iOS apre il microfono solo da un gesto
+        alVia: () => { if (statoVoce === 'ascolto') { inizioFase = performance.now(); mostraStatoVoce('🎙️ 0:00 · parla pure'); } },
+        alTempo: (s, sentito) => { if (statoVoce === 'ascolto') mostraStatoVoce((sentito ? '🔴 ' : '🎙️ ') + tempo(s) + (sentito ? ' · tocca ■ quando hai finito' : ' · parla pure')); },
+        alTesto: testo => { if (statoVoce !== 'ascolto') return; campoFrase.value = unisciFrase(prima, testo); rileggi(); }
+      });
+    } catch (e) { appleNonVa(e); return; }
+    ascoltoInCorso = a;
+    fase('ascolto');
+    onda.length = 0;
+    mostraStatoVoce('🎙️ Apro il microfono…');
+    let ris;
+    try { ris = await a.finito; }
+    catch (e) { fineVoce(); campoFrase.value = prima; rileggi(); appleNonVa(e); return; }
+    fineVoce();
+    if (ris.annullato) { campoFrase.value = prima; rileggi(); return; }
+    if (!pref.appleSi) { pref.appleSi = true; scriviPref(); }
+    if (!ris.parlato) { campoFrase.value = prima; rileggi(); mostraToast('Non ho sentito niente: riprova, un po\' più vicino'); return; }
+    campoFrase.value = unisciFrase(prima, ris.testo);
+    rileggi();
+  }
+  // Apple non è partito: se è perché qui non c'è, lo si ricorda (fino al prossimo iOS) e si passa a Whisper.
+  function appleNonVa(e) {
+    const codice = (e && e.codice) || '';
+    if (V.APPLE_ASSENTE.includes(codice) || !codice) {
+      pref.appleNo = navigator.userAgent;
+      pref.appleSi = false;
+      scriviPref();
+      apriFoglio('Microfono', corpo => {
+        corpo.appendChild(el('p', '', 'Il riconoscimento vocale di Apple, quello della dettatura, l\'iPhone non lo lascia usare a questa app (' + (codice || 'errore') + '). Uso Whisper, che lavora dentro il telefono. Ci riprovo da solo quando aggiorni iOS.'));
+        corpo.appendChild(el('p', '', V.gpu ? 'Il più veloce è «Preciso veloce»: usa la scheda grafica del telefono.' : 'Scegli quale usare:'));
+        sceltaModelli(corpo, usaModello);
+      });
+      return;
+    }
+    // senza rete (o un intoppo di un momento): questa volta Whisper, la prossima di nuovo Apple
+    appleSaltaUnaVolta = true;
+    setTimeout(() => { appleSaltaUnaVolta = false; }, 60000);
+    mostraToast(codice === 'network' ? 'Senza rete Apple non riconosce la voce: tocca di nuovo 🎙️ per Whisper' : 'Apple non ha risposto (' + codice + '): tocca di nuovo 🎙️', null, null, 6000);
+  }
+
   async function microfono() {
     if (statoVoce === 'ascolto') { if (ascoltoInCorso) ascoltoInCorso.ferma(); return; }
     if (statoVoce !== 'fermo') return;
+    if (usaApple()) { microfonoApple(); return; }
     if (!V || !V.disponibile) { guidaDettatura('Questo telefono non lascia usare il microfono all\'app.'); return; }
     const chiave = modelloVoce();
     if (!chiave) { chiediScaricamento(); return; }
@@ -2443,6 +2529,7 @@
       if (errore) throw errore;
       const r = await V.trascrivi(chiave, ris.audio, paroleFrequenti());
       pref.voceTempi = (pref.voceTempi || []).concat(r.ms).slice(-10);
+      if (chiave === 'rapido') pref.voceGpu = r.gpu;   // la scheda grafica ha lavorato davvero, o è tornato al processore
       if (!r.testo) mostraToast('Non ho capito: riprova, un po\' più vicino');
       else {
         const prima = campoFrase.value.trim();
