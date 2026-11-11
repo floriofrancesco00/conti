@@ -375,7 +375,28 @@
   // «eliminata» tiene il posto di una categoria di partenza tolta, così non ricompare.
   // Le categorie di partenza che mancano dall'elenco personale (aggiunte in versioni nuove) si infilano
   // subito dopo quella che le precede nell'elenco di partenza: «Benessere» dopo «Vestiti», ecc.
+  // L'elenco lo chiede ogni riga che si disegna (con un anno di movimenti 1500 volte a disegno, misurato l'11/11/2026):
+  // lo si tiene finché le categorie personali non cambiano, riconoscendole da una firma di nomi, simboli e stati.
+  // Chi lo usa non modifica gli oggetti dell'elenco: al più lo filtra (e riceve una copia dell'elenco).
+  const memoElenco = new Map();
+  function firmaPersonali(mie) {
+    if (!mie) return '-';
+    let s = '';
+    for (const p of mie) s += p.nome + '\u0001' + (p.icona || '') + '\u0001' + (p.base || '') + '\u0001' + (p.nascosta ? 1 : 0) + (p.eliminata ? 1 : 0) + '\u0002';
+    return s;
+  }
   function elenco(tipo, personali) {
+    const mie = personali && Array.isArray(personali[tipo]) ? personali[tipo] : null;
+    const k = tipo + '\u0003' + firmaPersonali(mie);
+    let r = memoElenco.get(k);
+    if (!r) {
+      if (memoElenco.size > 40) memoElenco.clear();
+      r = elencoNuovo(tipo, personali);
+      memoElenco.set(k, r);
+    }
+    return r.slice();
+  }
+  function elencoNuovo(tipo, personali) {
     const base = CATEGORIE[tipo] || [];
     const segna = c => Object.assign({}, c, { base: c.nome, nascosta: false, ripiego: c.nome === RIPIEGO[tipo] });
     const mie = personali && Array.isArray(personali[tipo]) ? personali[tipo] : null;

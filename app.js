@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.10-2150';
+  const VERSIONE = '2026.11.11-1415';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -218,9 +218,9 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'le versioni nuove arrivano da sole, senza toccare niente';
+  const NOVITA = 'più veloce con tanti movimenti, e per l’icona nuova «Incolla» è in cima';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
-  let versionePronta = false, timerPronta = null, controlloInCorso = null, ultimoTocco = 0, ultimoControllo = null;
+  let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
   const puoRicaricare = () => !campoFrase.value.trim() && statoVoce === 'fermo' &&
     ($('toast').hidden || $('toastAzione').hidden || $('toastAzione').textContent !== 'Annulla');
@@ -233,10 +233,14 @@
     location.reload();
     return true;
   }
-  // senzaAttesa: tornando sull'app, chiudendo un foglio o uscendo, non serve che sia fermo da 2 secondi
+  // senzaAttesa: tornando sull'app, chiudendo un foglio o uscendo, non serve che sia fermo da 2 secondi.
+  // Con l'app davanti non gli si toglie da sotto gli occhi quello che sta guardando: se ha scorso la pagina o è su un
+  // altro mese o sull'anno, la versione nuova aspetta che esca dall'app o che ci torni (11/11/2026)
+  const vistaIniziale = () => window.scrollY < 80 && vista.modo === 'mese' && !vista.filtro &&
+    vista.anno === oggi().getFullYear() && vista.mese === oggi().getMonth();
   function ricaricaSePuoi(senzaAttesa) {
     if (!versionePronta || foglioAperto() || !puoRicaricare()) return false;
-    if (!senzaAttesa && !document.hidden && Date.now() - ultimoTocco < 2000) return false;
+    if (!senzaAttesa && !document.hidden && (Date.now() - ultimoTocco < 2000 || !vistaIniziale())) return false;
     return ricarica();
   }
   function prontaLaNuova() {
@@ -289,7 +293,9 @@
   // 'pronta' | 'ultima' | 'senza rete' | 'non arrivata' | 'nessuna'
   function controllaVersione() {
     if (versionePronta) return Promise.resolve('pronta');
-    if (controlloInCorso) return controlloInCorso;
+    // chiesto mentre ne è in corso un altro: si rifà appena finisce, perché quello in corso può aver letto la versione
+    // pubblicata un attimo prima della nuova (succedeva nel banco: il controllo che l'avrebbe trovata si perdeva)
+    if (controlloInCorso) { ancoraUnaVolta = true; return controlloInCorso; }
     if (!('serviceWorker' in navigator) || location.protocol === 'file:') return Promise.resolve('nessuna');
     controlloInCorso = (async () => {
       const reg = await navigator.serviceWorker.getRegistration();
@@ -303,11 +309,15 @@
       if (!(await installa(reg, v))) return 'non arrivata';
       prontaLaNuova();
       return 'pronta';
-    })().catch(() => 'non arrivata').finally(() => { controlloInCorso = null; });
+    })().catch(() => 'non arrivata').finally(() => {
+      controlloInCorso = null;
+      if (ancoraUnaVolta) { ancoraUnaVolta = false; setTimeout(controllaVersione, 0); }
+    });
     return controlloInCorso;
   }
   async function cercaAggiornamenti() {
     mostraToast('Cerco la versione nuova…');
+    if (controlloInCorso) await controlloInCorso;   // uno già partito può aver letto prima della pubblicazione: se ne fa uno nuovo
     const esito = await controllaVersione();
     if (esito === 'pronta') {
       if (puoRicaricare()) { mostraToast('Aggiorno…'); setTimeout(ricarica, 300); }
@@ -344,6 +354,9 @@
   let alChiudereFoglio = null, timerFoglio = null;
   function apriFoglio(titolo, costruisci, alChiudere) {
     const corpo = $('foglioCorpo');
+    // in cima prima di cambiare il contenuto: dopo, rimetterlo in cima costringeva a ricalcolare tutta la pagina
+    // a metà (un terzo di secondo col menù e un anno di movimenti, misurato l'11/11/2026)
+    if (!$('foglio').hidden) $('foglio').scrollTop = 0;
     corpo.textContent = '';
     const h = document.createElement('h2');
     h.id = 'foglioTitolo';
@@ -357,10 +370,10 @@
     const giaAperto = !f.hidden && !f.classList.contains('via');
     f.classList.remove('via');
     f.style.transform = ''; v.style.opacity = '';
+    if (!giaAperto) f.classList.add('entra');   // parte già fuori schermo: niente calcolo nella posizione finale
     v.hidden = false;
     f.hidden = false;
-    f.scrollTop = 0;
-    if (!giaAperto) { f.classList.add('entra'); requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove('entra'))); }
+    if (!giaAperto) requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove('entra')));
   }
   function chiudiFoglio(animato) {
     const f = $('foglio'), v = $('velo');
@@ -1362,8 +1375,7 @@
   const vista = { modo: 'mese', anno: oggi().getFullYear(), mese: oggi().getMonth(), filtro: null };
 
   function nelPeriodo(m) {
-    const [y, mm] = m.data.split('-').map(Number);
-    return vista.modo === 'anno' ? y === vista.anno : (y === vista.anno && mm - 1 === vista.mese);
+    return m.data.startsWith(vista.modo === 'anno' ? vista.anno + '-' : vista.anno + '-' + String(vista.mese + 1).padStart(2, '0') + '-');
   }
   function totali(lista) {
     const t = { entrate: 0, uscite: 0, tasse: 0 };
@@ -1458,8 +1470,15 @@
     const ultimo = ultimoMese();
     const finoA = vista.anno < Number(ultimo.slice(0, 4)) ? 11 : Number(ultimo.slice(5, 7)) - 1;
     let righe = 0;
+    const perMese = new Map(), anno = vista.anno + '-';
+    for (const m of stato.movimenti) {
+      if (!m.data.startsWith(anno)) continue;
+      const x = Number(m.data.slice(5, 7)) - 1;
+      if (!perMese.has(x)) perMese.set(x, []);
+      perMese.get(x).push(m);
+    }
     for (let mm = finoA; mm >= 0; mm--) {
-      const lista = stato.movimenti.filter(m => { const [y, x] = m.data.split('-').map(Number); return y === vista.anno && x - 1 === mm; });
+      const lista = perMese.get(mm) || [];
       if (!lista.length) continue;   // i mesi senza movimenti non si mostrano
       righe++;
       const t = totali(lista);
@@ -1492,6 +1511,7 @@
     if (vista.filtro) filtro.textContent = 'Solo ' + vista.filtro;
     // nell'anno la lista completa è lunga: si vede solo filtrando una categoria
     $('sezMovimenti').hidden = vista.modo === 'anno' && !vista.filtro;
+    if ($('sezMovimenti').hidden) return;   // 1500 righe costruite per niente: mezzo secondo sul telefono (11/11/2026)
     let righe = vista.filtro ? lista.filter(m => m.tipo === 'uscita' && m.categoria === vista.filtro) : lista;
     righe = righe.slice().sort((a, b) => (b.data.localeCompare(a.data)) || (b.creato || '').localeCompare(a.creato || ''));
     if (!righe.length) {
@@ -1499,7 +1519,7 @@
         : 'Ancora nessun movimento. Scrivi o detta la prima spesa qui sopra, per esempio «caffè 1,20».'));
       if (!stato.movimenti.length) {   // un'icona nuova: i dati della vecchia arrivano dagli appunti
         const b = tasto('tasto-secondario', '📥 Incolla dalla vecchia icona', incollaDallaVecchia);
-        b.id = 'incollaTrasloco';
+        b.id = 'incollaTraslocoLista';
         b.style.marginTop = '10px';
         cont.appendChild(b);
       }
@@ -1718,6 +1738,7 @@
 
   function importaTesto(testo) {
     const esito = { aggiunti: 0, presenti: 0, scartati: 0 };
+    const vuota = !stato.movimenti.length;
     const ids = new Set(stato.movimenti.map(m => m.id));
     const tipi = new Set(TIPI_DATI);
     const meta = {};
@@ -1725,7 +1746,7 @@
     for (const riga of String(testo).split(/\r?\n/)) {
       const r = riga.trim();
       if (!r) continue;
-      const m = r.match(/^#(schema|imparate|fissi|categorie|saldo|tasse|legami) (.*)$/);
+      const m = r.match(/^#(schema|imparate|fissi|categorie|saldo|tasse|legami|preferenze) (.*)$/);
       if (m) { try { meta[m[1]] = JSON.parse(m[2]); } catch (e) { /* riga rovinata: si ignora */ } continue; }
       // anche l'intestazione con davanti il titolo della condivisione («Conti # Conti — esportazione…»)
       if (r.startsWith('#') || r.startsWith('data;') || /#\s*Conti — esportazione/.test(r)) continue;
@@ -1746,6 +1767,12 @@
     if (meta.tasse && !stato.tasse.attiva) stato.tasse = imp.tasse;
     const presenti = new Set(stato.ricorrenti.map(r => r.id));
     for (const r of imp.ricorrenti) if (!presenti.has(r.id) && tipi.has(r.tipo) && r.importo) stato.ricorrenti.push(r);
+    // dal trasloco su un'icona nuova: lo sfondo scelto nella vecchia, se questa è ancora vuota
+    if (vuota && meta.preferenze && typeof meta.preferenze.sfondo === 'string' && meta.preferenze.sfondo !== pref.sfondo) {
+      pref.sfondo = meta.preferenze.sfondo;
+      scriviPref();
+      applicaSfondo();
+    }
     const legami = meta.legami && typeof meta.legami === 'object' ? meta.legami : {};
     for (const r of righe) {
       const c = r.split(';');
@@ -1937,14 +1964,14 @@
   // i dati: «Copia tutto» qui, «Incolla dalla vecchia icona» nell'icona nuova, che parte vuota.
   function apriTrasloco() {
     apriFoglio('Nome e icona nuovi', corpo => {
-      corpo.appendChild(el('p', '', 'L\'iPhone mette nome e icona solo quando aggiungi l\'app alla schermata Home, e poi non li cambia più. Per avere «' + ED.titolo + '» con l\'icona nuova va aggiunta di nuovo. L\'icona nuova parte vuota: i movimenti ce li porti così.'));
+      corpo.appendChild(el('p', '', 'L\'iPhone non cambia mai da solo nome e icona di un\'app già sulla schermata Home: va aggiunta di nuovo, una volta sola. Quattro passi, due minuti.'));
       const passi = el('ol', 'passi');
       const n = stato.movimenti.length;
       const p1 = el('li', '', '');
       p1.appendChild(el('strong', '', 'Copia tutto. '));
-      p1.appendChild(document.createTextNode(n + (n === 1 ? ' movimento' : ' movimenti') + ', fissi, categorie, saldo e tasse. Per sicurezza incollalo anche in Note.'));
+      p1.appendChild(document.createTextNode('Qui sotto: ' + n + (n === 1 ? ' movimento' : ' movimenti') + ', fissi, categorie, saldo, tasse e sfondo.'));
       const copia = tasto('tasto-primario', '📋 Copia tutto', async () => {
-        const ok = await copiaTesto(testoEsportazione());
+        const ok = await copiaTesto(testoEsportazione() + '\n#preferenze ' + JSON.stringify({ sfondo: pref.sfondo }));
         if (!ok) { mostraToast('Non sono riuscito a copiare'); return; }
         segnaBackup();
         copia.textContent = '✓ Copiato';
@@ -1956,21 +1983,21 @@
       passi.appendChild(p1);
       const indirizzo = location.origin + location.pathname.replace(/index\.html$/, '');
       const p2 = el('li', '', '');
-      p2.appendChild(el('strong', '', 'Aggiungi l\'app di nuovo. '));
-      p2.appendChild(document.createTextNode('Apri Safari, vai su '));
+      p2.appendChild(el('strong', '', 'Aggiungila di nuovo da Safari. '));
+      p2.appendChild(document.createTextNode('Apri Safari e scrivi '));
       p2.appendChild(el('span', 'indirizzo', indirizzo.replace(/^https?:\/\//, '')));
-      p2.appendChild(document.createTextNode(', tocca Condividi (il quadrato con la freccia) → «Aggiungi alla schermata Home» → Aggiungi. Il nome lo puoi accorciare lì.'));
+      p2.appendChild(document.createTextNode(' (te lo completa da solo). Poi Condividi (il quadrato con la freccia) → «Aggiungi alla schermata Home» → Aggiungi.'));
       passi.appendChild(p2);
       const p3 = el('li', '', '');
-      p3.appendChild(el('strong', '', 'Apri l\'icona nuova '));
-      p3.appendChild(document.createTextNode('e tocca «📥 Incolla dalla vecchia icona», sotto i movimenti.'));
+      p3.appendChild(el('strong', '', 'Apri l\'icona nuova e tocca «📥 Incolla» '));
+      p3.appendChild(document.createTextNode('in cima. Se compare il fumetto «Incolla», toccalo. Arrivano tutti i movimenti.'));
       passi.appendChild(p3);
       const p4 = el('li', '', '');
-      p4.appendChild(el('strong', '', 'Solo quando nell\'icona nuova vedi i tuoi movimenti, '));
-      p4.appendChild(document.createTextNode('cancella quella vecchia: tienila premuta → Rimuovi app. Prima no: con l\'icona se ne vanno anche i suoi dati.'));
+      p4.appendChild(el('strong', '', 'Solo dopo, cancella la vecchia: '));
+      p4.appendChild(document.createTextNode('tienila premuta → Rimuovi app. Prima no, perché con l\'icona se ne vanno i suoi dati.'));
       passi.appendChild(p4);
       corpo.appendChild(passi);
-      corpo.appendChild(el('p', 'nota', 'Nell\'icona nuova sfondo e microfono si scelgono di nuovo, e «Preciso» va riscaricato (250 MB, meglio col Wi-Fi): ogni icona ha la sua memoria.'));
+      corpo.appendChild(el('p', 'nota', 'Nell\'icona nuova il microfono «Preciso» va riscaricato una volta (250 MB, meglio col Wi-Fi): ogni icona ha la sua memoria.'));
     });
   }
 
@@ -1978,6 +2005,7 @@
   // appunti, si apre «Importa» per incollarla a mano.
   async function incollaDallaVecchia() {
     let testo = '';
+    mostraToast('Se compare il fumetto «Incolla», toccalo', null, null, 6000);
     try { testo = await navigator.clipboard.readText(); } catch (e) { testo = ''; }
     if (!/^\d{4}-\d{2}-\d{2};/m.test(testo)) {
       apriImporta();
@@ -2018,6 +2046,9 @@
   }
 
   function disegnaBanner() {
+    // un'icona appena aggiunta: il tasto per portarci i dati della vecchia sta in cima, dove si vede subito (11/11/2026:
+    // prima stava solo in fondo all'elenco vuoto, sotto riepilogo, autonomia e categorie)
+    $('bannerTrasloco').hidden = !!(stato.movimenti.length || stato.ricorrenti.length || stato.saldo);
     const n = stato.movimenti.length;
     const vecchio = !stato.ultimoBackup || (Date.now() - new Date(stato.ultimoBackup)) > 14 * GIORNO_MS;
     const mostra = n >= 10 && vecchio;
@@ -2147,7 +2178,22 @@
     });
   }
   applicaSfondo();
-  fetch('sfondi/sfondi.json').then(r => r.json()).then(l => { if (Array.isArray(l)) { sfondi = l; applicaSfondo(); } }).catch(() => {});
+  fetch('sfondi/sfondi.json').then(r => r.json()).then(l => { if (Array.isArray(l)) { sfondi = l; applicaSfondo(); prontiAlMenu(); } }).catch(() => {});
+  // Le miniature degli sfondi: alla prima apertura del menù andavano prese dalla memoria e decodificate tutte insieme,
+  // un terzo di secondo col processore rallentato come un telefono (dalla seconda 22 ms, misurato l'11/11/2026).
+  // Si preparano prima, quando l'app è ferma; tenerle qui le lascia pronte anche per il menù.
+  const miniPronte = [];
+  function prontiAlMenu() {
+    const quando = window.requestIdleCallback ? f => requestIdleCallback(f, { timeout: 4000 }) : f => setTimeout(f, 2500);
+    quando(() => {
+      for (const s of sfondi) {
+        const i = new Image();
+        i.src = 'sfondi/' + s.id + '-mini.webp';
+        if (i.decode) i.decode().catch(() => {});
+        miniPronte.push(i);
+      }
+    });
+  }
 
   // ================================================================ microfono (Whisper dentro il telefono, voce.js)
   // Rifatto il 10/11/2026. Un tocco: ascolta (si vede il tempo e l'onda della voce); secondo tocco: basta.
@@ -2414,6 +2460,7 @@
 
   // ================================================================ eventi generali
   $('apriMenu').addEventListener('click', apriMenu);
+  $('incollaTrasloco').addEventListener('click', incollaDallaVecchia);
   $('bannerEsporta').addEventListener('click', () => apriEsporta('tutto'));
   $('modSaldo').addEventListener('click', apriSaldo);
   $('velo').addEventListener('click', chiudiFoglio);
