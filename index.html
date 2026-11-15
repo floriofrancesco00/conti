@@ -32,7 +32,7 @@
 
 <main>
   <section class="carta segna" aria-label="Segna un movimento">
-    <label for="frase" class="etichetta">Cosa hai speso o incassato?</label>
+    <label for="frase" id="etichettaFrase" class="etichetta">Cosa hai speso o incassato?</label>
     <div class="riga-frase">
       <textarea id="frase" rows="1" enterkeyhint="done" autocomplete="off" autocorrect="on" autocapitalize="sentences"
         spellcheck="true" placeholder="pizza 12 ieri · provvigione 1800"></textarea>
@@ -48,6 +48,7 @@
     <div id="anteprima" class="anteprima" hidden>
       <div id="antSingolo" class="chips">
         <button id="chipTipo" class="chip scambia" type="button"></button>
+        <button id="chipConto" class="chip chip-conto" type="button"></button>
         <button id="chipCategoria" class="chip" type="button"></button>
         <button id="chipData" class="chip" type="button"></button>
       </div>
@@ -61,7 +62,7 @@
       </div>
       <p id="antAvviso" class="avviso" hidden></p>
     </div>
-    <p id="suggerimento" class="suggerimento">Scrivi o tocca il microfono, poi Salva. Anche più cose insieme: «pizza 12, benzina 50», o fisse: «netflix 13,99 ogni mese». Tipo, categoria e giorno si correggono toccandoli.</p>
+    <p id="suggerimento" class="suggerimento">Scrivi o tocca il microfono, poi Salva. Anche più cose insieme: «pizza 12, benzina 50», o fisse: «netflix 13,99 ogni mese». Il conto lo dici così: «caffè 1,20 in contanti», «prelievo 50». Tipo, conto, categoria e giorno si correggono toccandoli.</p>
   </section>
 
   <div id="bannerTrasloco" class="carta banner" hidden>
@@ -81,6 +82,14 @@
     <p id="bannerTesto"></p>
     <button id="bannerEsporta" class="tasto-secondario" type="button">Esporta</button>
   </div>
+
+  <!-- la seconda modalità (15/11/2026): tutti i conti insieme, o uno solo -->
+  <nav id="sceltaConto" class="carta scelta-conto" aria-label="Quale conto guardare">
+    <button type="button" data-conto="" aria-pressed="true"><span class="sc-icona">∑</span><span>Tutto</span></button>
+    <button type="button" data-conto="contanti" aria-pressed="false"><span class="sc-icona">💶</span><span>Contanti</span></button>
+    <button type="button" data-conto="digitale" aria-pressed="false"><span class="sc-icona">💳</span><span>Digitale</span></button>
+    <button type="button" data-conto="cripto" aria-pressed="false"><span class="sc-icona">🪙</span><span>Cripto</span></button>
+  </nav>
 
   <section class="carta" aria-label="Riepilogo del periodo">
     <div class="periodo">
@@ -102,6 +111,7 @@
         <div class="tessera"><span class="t-etichetta">Entrate</span><span class="t-valore entrata" id="totEntrate"></span></div>
         <div class="tessera"><span class="t-etichetta">Uscite</span><span class="t-valore" id="totUscite"></span></div>
       </div>
+      <p id="riepSpostamenti" class="riep-spostamenti" hidden></p>
     </div>
   </section>
 

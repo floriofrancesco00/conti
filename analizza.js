@@ -9,9 +9,14 @@
   // Parole chiave generiche: il codice è pubblico, qui non vanno nomi di persone o clienti.
   // Dal 10/11/2026 i tipi sono solo due: gli investimenti sono un'uscita («Investimenti»)
   // e quello che torna dagli investimenti è un'entrata («Ritirato dagli investimenti»).
-  const PAROLE_INVESTIMENTI = ['pac', 'piano di accumulo', 'etf', 'azioni', 's&p', 'nasdaq', 'msci', 'cripto', 'crypto',
-    'bitcoin', 'btc', 'eth', 'ethereum', 'solana', 'usdt', 'binance', 'ledger', 'blofin', 'bybit', 'etoro', 'certificato',
-    'certificati', 'cash collect', 'autocall', 'investito', 'investiti', 'investimento', 'investimenti', 'obbligazioni', 'btp'];
+  // Dal 15/11/2026 le cripto non sono più un investimento ma uno dei tre conti (vedi sotto, «i tre conti»):
+  // comprarle o venderle è uno spostamento fra Digitale e Cripto.
+  const INVESTIRE_GENERICO = ['investito', 'investiti', 'investimento', 'investimenti'];
+  const PRODOTTI_INVESTIMENTO = ['pac', 'piano di accumulo', 'etf', 'azioni', 's&p', 'nasdaq', 'msci', 'etoro', 'certificato',
+    'certificati', 'cash collect', 'autocall', 'obbligazioni', 'btp'];
+  const PAROLE_INVESTIMENTI = PRODOTTI_INVESTIMENTO.concat(INVESTIRE_GENERICO);
+  const PAROLE_CRIPTO = ['cripto', 'crypto', 'criptovaluta', 'criptovalute', 'bitcoin', 'btc', 'eth', 'ethereum', 'solana',
+    'usdt', 'usdc', 'tether', 'stablecoin', 'binance', 'ledger', 'blofin', 'bybit', 'coinbase', 'kraken', 'metamask', 'staking'];
   const CATEGORIE = {
     uscita: [
       { nome: 'Spesa', icona: '🛒', parole: ['spesa', 'supermercato', 'esselunga', 'coop', 'conad', 'lidl', 'eurospin', 'despar', 'interspar', 'carrefour', 'aldi', 'penny', 'famila', 'alimentari', 'panificio', 'fornaio', 'macelleria', 'pescheria', 'frutta', 'verdura', 'mercato'] },
@@ -73,6 +78,50 @@
     'bonifico da', 'bonifico ricevuto', 'commissione', 'commissioni', 'busta paga'];
   const BANCA = ['bancaria', 'bancarie', 'banca', 'prelievo', 'bonifico', 'carta', 'conto', 'bancomat', 'canone'];
   const ESCE = ['uscita', 'speso', 'spesi', 'pagato', 'pagati', 'comprato', 'comprati', 'acquistato', 'acquisto'];
+  // entrate vere (non vendite né ritiri): «ricevuto 100 usdt» è un'entrata in Cripto, non uno spostamento
+  const ENTRA_VERI = ENTRA.filter(p => !RITIRA.includes(p) && p !== 'vendita');
+  const COSTO = ['commissione', 'commissioni', 'costo', 'costi', 'canone', 'spese bancarie', 'spese di prelievo'];
+
+  // ---------------------------------------------------------------- i tre conti (15/11/2026)
+  // Francesco: «sono tre fonti di dove si ha il denaro»: contanti, digitale (conti e carte) e cripto. Ogni entrata e
+  // ogni uscita sta in uno dei tre. Lo spostamento fra due conti (prelievo al bancomat, versamento in banca, cripto
+  // comprate o vendute) non è né un'entrata né un'uscita: i soldi restano suoi, cambiano posto. Le cripto si segnano
+  // in euro, al valore del momento (sua scelta).
+  const CONTI = [
+    { id: 'contanti', nome: 'Contanti', icona: '💶' },
+    { id: 'digitale', nome: 'Digitale', icona: '💳' },
+    { id: 'cripto', nome: 'Cripto', icona: '🪙' }
+  ];
+  const CONTO_BASE = 'digitale';
+  const SPOSTAMENTO = 'Spostamento';
+  // [parola, conto, opzioni]. g = generica, cioè il modo di pagare: non resta nella descrizione («pizza 12 in contanti»
+  // → «Pizza») e non decide la categoria («spesa 30 col bancomat» è Spesa). l = un posto, non un conto («al bancomat»
+  // non dice da dove a dove). p = vale solo dopo una preposizione («con la carta», «sul conto»; non «carta igienica»,
+  // «il conto della cena»).
+  const PAROLE_CONTO = [
+    ['contanti', 'contanti', 'g'], ['contante', 'contanti', 'g'], ['cash', 'contanti', 'g'], ['banconote', 'contanti', 'g'],
+    ['banconota', 'contanti', 'g'], ['spiccioli', 'contanti', 'g'], ['monetine', 'contanti', 'g'],
+    ['digitale', 'digitale', 'g'], ['carta di credito', 'digitale', 'g'], ['carta di debito', 'digitale', 'g'],
+    ['carta', 'digitale', 'gp'], ['bancomat', 'digitale', 'gl'], ['atm', 'digitale', 'gl'], ['pos', 'digitale', 'glp'],
+    ['conto corrente', 'digitale', 'g'], ['conto', 'digitale', 'gp'], ['banca', 'digitale', 'g'],
+    ['bonifico', 'digitale', ''], ['paypal', 'digitale', ''], ['satispay', 'digitale', ''], ['apple pay', 'digitale', ''],
+    ['google pay', 'digitale', ''], ['revolut', 'digitale', ''], ['hype', 'digitale', ''], ['n26', 'digitale', ''],
+    ['fineco', 'digitale', ''], ['iban', 'digitale', '']
+  ].concat(PAROLE_CRIPTO.map(p => [p, 'cripto', ['cripto', 'crypto', 'criptovaluta', 'criptovalute'].includes(p) ? 'g' : '']));
+  // gli spostamenti: prelievo (Digitale → Contanti), versamento (Contanti → Digitale), spostamento detto a parole
+  const PRELIEVO = ['prelievo', 'prelievi', 'prelevato', 'prelevati', 'prelevare', 'prelevo', 'preso al bancomat',
+    'presi al bancomat', 'ritirato al bancomat', 'ritirati al bancomat'];
+  // niente «deposito»: «deposito cauzionale 500» è una spesa per la casa
+  const VERSA = ['versato', 'versati', 'versamento', 'versare', 'depositato', 'depositati', 'depositare'];
+  const SPOSTA = ['sposto', 'spostato', 'spostati', 'spostata', 'spostare', 'sposta', 'spostamento', 'trasferito',
+    'trasferiti', 'trasferisco', 'trasferimento', 'giroconto', 'girato', 'girati'];
+  const VENDE = ['venduto', 'venduti', 'vendo', 'vendita', 'prelevato', 'prelevati', 'ritirato', 'ritirati', 'incassato',
+    'incassati', 'convertito', 'convertiti', 'cambiato', 'cambiati', 'tolto', 'tolti'];
+  const COMPRA = ['comprato', 'comprati', 'compro', 'acquistato', 'acquistati', 'acquisto', 'messo', 'messi', 'caricato',
+    'caricati', 'investire', 'investo'];
+  // le parole che dicono solo la direzione: per sapere se c'è anche una spesa vera («prelievo 50» no, «pizza 20 in cripto» sì)
+  const DIREZIONE = new Set([...PRELIEVO, ...VERSA, ...SPOSTA, ...VENDE, ...COMPRA, ...INVESTIRE_GENERICO].filter(p => !p.includes(' ')));
+  const NOME_SPOSTAMENTO = { prelievo: 'Prelievo', versamento: 'Versamento', compra: 'Cripto comprate', vende: 'Cripto vendute', sposta: 'Spostamento' };
 
   const VALUTA = new Set(['euro', 'eur', 'euri', '€']);
   const RIEMPITIVI = new Set(['ho', 'mi', 'ha', 'hanno', 'abbiamo', 'speso', 'spesi', 'pagato', 'pagati', 'preso', 'presi',
@@ -519,9 +568,71 @@
 
   function esiste(tipo, nome, personali) { return elenco(tipo, personali).some(c => c.nome === nome && !c.nascosta); }
 
+  // ---------------------------------------------------------------- conti nominati nella frase (15/11/2026)
+  const PREP_DA = new Set(['da', 'dal', 'dalla', 'dallo', 'dai', 'dalle', 'dagli', 'dall\'']);
+  const PREP_A = new Set(['a', 'al', 'alla', 'allo', 'ai', 'alle', 'agli', 'all\'', 'su', 'sul', 'sulla', 'sullo', 'sui',
+    'sulle', 'sull\'', 'in', 'nel', 'nella', 'nello', 'nei', 'nelle', 'nell\'', 'verso']);
+  const PREP_CON = new Set(['con', 'col', 'coi', 'tramite', 'via']);
+  const ARTICOLI = new Set(['il', 'lo', 'la', 'i', 'gli', 'le', 'l\'', 'mio', 'mia', 'miei', 'mie']);
+  const FRASI_CONTO = PAROLE_CONTO.map(([p, conto, o]) => ({ parole: normalizza(p).split(' '), conto,
+    generica: o.includes('g'), luogo: o.includes('l'), conPrep: o.includes('p') })).sort((a, b) => b.parole.length - a.parole.length);
+  const pulita = t => t.norm.replace(/[^a-z0-9&']/g, '');
+
+  // Dove la frase nomina un conto: [{ conto, i, n (parole), ruolo: 'da' | 'a' | 'con' | null, prep (indice della
+  // preposizione, -1 se non c'è), generica, luogo }]. «da» e «a» servono a capire la direzione di uno spostamento.
+  function menzioniConti(tok) {
+    const out = [];
+    for (let i = 0; i < tok.length; i++) {
+      for (const f of FRASI_CONTO) {
+        const n = f.parole.length;
+        let ok = true;
+        for (let k = 0; k < n && ok; k++) {
+          const t = tok[i + k];
+          ok = !!t && (n === 1 ? varianti(f.parole[0]).includes(pulita(t)) : pulita(t) === f.parole[k]);
+        }
+        if (!ok) continue;
+        if (f.parole[0] === 'cash' && tok[i + 1] && pulita(tok[i + 1]) === 'collect') continue;   // un certificato, non i contanti
+        // la preposizione davanti, saltando l'articolo: «con la carta», «dal mio conto», «in contanti»
+        let j = i - 1;
+        if (j >= 0 && ARTICOLI.has(tok[j].norm)) j--;
+        const prep = j >= 0 ? tok[j].norm : null;
+        const ruolo = PREP_DA.has(prep) ? 'da' : PREP_A.has(prep) ? 'a' : PREP_CON.has(prep) ? 'con' : null;
+        if (f.conPrep && !ruolo) continue;
+        out.push({ conto: f.conto, i, n, ruolo, prep: ruolo ? j : -1, generica: f.generica, luogo: f.luogo });
+        i += n - 1;
+        break;
+      }
+    }
+    return out;
+  }
+
+  // Da quale conto a quale: prima quello che la frase dice con «da» e «a/su/in», poi i conti nominati senza
+  // preposizione, poi quello che ci si aspetta da come è detto (predef: il prelievo va da Digitale a Contanti).
+  function direzione(menz, predef) {
+    let da = null, verso = null;
+    const utili = menz.filter(m => !m.luogo);
+    for (const m of utili) {
+      if (m.ruolo === 'da' && !da) da = m.conto;
+      else if (m.ruolo === 'a' && !verso && m.conto !== da) verso = m.conto;
+    }
+    for (const m of utili) {
+      if (m.ruolo === 'da' || m.ruolo === 'a' || m.conto === da || m.conto === verso) continue;
+      if (!da && m.conto === predef.da) da = m.conto;
+      else if (!verso) verso = m.conto;
+      else if (!da) da = m.conto;
+    }
+    const altro = c => (c === CONTO_BASE ? 'contanti' : CONTO_BASE);
+    if (!da) da = predef.da !== verso ? predef.da : altro(verso);
+    if (!verso) verso = predef.verso !== da ? predef.verso : altro(da);
+    if (da === verso) verso = altro(da);
+    return { da, verso };
+  }
+
   /**
-   * analizza(testo, { oggi: Date, adesso: Date, imparate: {parola: {tipo, categoria}}, categorie, tipo })
+   * analizza(testo, { oggi: Date, adesso: Date, imparate: {parola: {tipo, categoria}}, categorie, tipo, conto, imparatiConti })
    * tipo forza il tipo (quando lo sceglie Francesco dal bottone). adesso (con l'ora) serve al «bar».
+   * conto = il conto che sta guardando (vale se la frase non ne nomina uno), imparatiConti = {parola: conto}.
+   * Restituisce anche conto e, per gli spostamenti (tipo «spostamento»), verso: da conto a verso.
    */
   function analizza(testo, opz) {
     opz = opz || {};
@@ -529,7 +640,8 @@
     const oggi = aMezzanotte(opz.oggi || adesso);
     const tok = tokenizza(testo);
     const risultato = { tipo: 'uscita', importo: null, categoria: null, data: isoDa(oggi), descrizione: '', ripeti: false,
-      giornoMese: null, certo: { tipo: false, categoria: false, importo: false, data: false } };
+      giornoMese: null, conto: opz.conto || CONTO_BASE, verso: null, contoDa: opz.conto ? 'vista' : 'base',
+      certo: { tipo: false, categoria: false, importo: false, data: false, conto: false } };
     if (!tok.length) return risultato;
 
     // numeri a parole («due», «novanta»): sempre, anche accanto alle cifre («due euro e 90»). Quale sia
@@ -566,20 +678,63 @@
     }
     if (imp) { risultato.importo = imp.centesimi; risultato.certo.importo = imp.centesimi > 0; risultato.importoForte = imp.forte; }
 
-    const spaziato = ' ' + tok.map(t => t.norm.replace(/[^a-z0-9&']/g, '')).join(' ') + ' ';
+    const spaziato = ' ' + tok.map(pulita).join(' ') + ' ';
+    const primo = tok[0].orig.trim();
+
+    // ---- i conti (15/11/2026): quale conto nomina la frase, e se è uno spostamento fra due conti
+    const menz = menzioniConti(tok);
+    const delConto = new Set(), generiche = new Set();
+    for (const m of menz) {
+      for (let k = m.i; k < m.i + m.n; k++) { delConto.add(k); if (m.generica) generiche.add(k); }
+      // il modo di pagare non resta nella descrizione, con la sua preposizione: «pizza 12 in contanti» → «Pizza»
+      if (m.generica) for (let k = m.prep >= 0 ? m.prep : m.i; k < m.i + m.n; k++) tok[k].usato = true;
+    }
+    // per la categoria, senza il modo di pagare («spesa 30 col bancomat» è Spesa, non Banca)
+    const spaziatoCat = ' ' + tok.filter((t, i) => !generiche.has(i)).map(pulita).join(' ') + ' ';
+    // c'è anche una spesa o un'entrata vera, oltre al conto e alla direzione? («prelievo 50» no, «pizza 20 in cripto» sì)
+    const spaziatoAltro = ' ' + tok.filter((t, i) => !delConto.has(i) && !DIREZIONE.has(pulita(t))).map(pulita).join(' ') + ' ';
+    const altraCat = categoriaPer('uscita', spaziatoAltro, opz.categorie) || categoriaPer('entrata', spaziatoAltro, opz.categorie);
+    const segnoEsplicito = primo.startsWith('+') || primo.startsWith('-') || primo.startsWith('−') || !!(imp && imp.esplicito);
+    const cripto = menz.some(m => m.conto === 'cripto') && !trova(spaziato, ['etoro']);
+    const entraDavvero = trova(spaziato, ENTRA_VERI) || trova(spaziato, RENDITA);
+    const prodotto = trova(spaziato, PRODOTTI_INVESTIMENTO);
+    const generico = { da: opz.conto || CONTO_BASE, verso: (opz.conto || CONTO_BASE) === CONTO_BASE ? 'contanti' : CONTO_BASE };
+    let sposta = null, genere = 'sposta';
+    if (opz.tipo === 'spostamento') {
+      if (trova(spaziato, PRELIEVO)) genere = 'prelievo';
+      else if (trova(spaziato, VERSA)) genere = 'versamento';
+      sposta = direzione(menz, genere === 'prelievo' ? (cripto ? { da: 'cripto', verso: CONTO_BASE } : { da: CONTO_BASE, verso: 'contanti' })
+        : genere === 'versamento' ? (cripto ? { da: CONTO_BASE, verso: 'cripto' } : { da: 'contanti', verso: CONTO_BASE }) : generico);
+    } else if (!opz.tipo && !segnoEsplicito && !trova(spaziato, COSTO) && !prodotto) {
+      const soloConti = !altraCat && !entraDavvero;
+      const due = menz.filter(m => !m.luogo);
+      let predef = null;
+      if (trova(spaziato, PRELIEVO)) { genere = 'prelievo'; predef = cripto ? { da: 'cripto', verso: CONTO_BASE } : { da: CONTO_BASE, verso: 'contanti' }; }
+      else if (trova(spaziato, VERSA)) { genere = 'versamento'; predef = cripto ? { da: CONTO_BASE, verso: 'cripto' } : { da: 'contanti', verso: CONTO_BASE }; }
+      else if (trova(spaziato, SPOSTA)) predef = generico;
+      else if (soloConti && cripto) {
+        genere = trova(spaziato, VENDE) ? 'vende' : 'compra';
+        predef = genere === 'vende' ? { da: 'cripto', verso: CONTO_BASE } : { da: CONTO_BASE, verso: 'cripto' };
+      } else if (soloConti && trova(spaziato, ['bancomat', 'atm']) && !trova(spaziato, ESCE)) {
+        genere = 'prelievo'; predef = { da: CONTO_BASE, verso: 'contanti' };   // «bancomat 100»: preso al bancomat
+      } else if (soloConti && new Set(due.map(m => m.conto)).size >= 2) predef = generico;   // «100 contanti in banca»
+      if (predef) sposta = direzione(menz, predef);
+    }
 
     // tipo. Gli investimenti sono uscite in «Investimenti»; venduti, ritirati, dividendi sono entrate in «Ritirato dagli investimenti».
+    // Le cripto senza nient'altro (non spostamenti: «+100 bitcoin», «staking 5») si leggono come prima, da investimenti.
     let tipo = 'uscita', certo = false, forzata = null;
-    const primo = tok[0].orig.trim();
-    const investe = trova(spaziato, INVESTE);
+    const investe = trova(spaziato, INVESTE) || (cripto && !altraCat && !trova(spaziato, ENTRA_VERI) ? 'cripto' : null);
     if (investe) forzata = trova(spaziato, RENDITA) || trova(spaziato, RITIRA) ? RITIRATO : INVESTIMENTI;
-    if (opz.tipo) { tipo = opz.tipo; certo = true; }
+    if (sposta) { tipo = 'spostamento'; certo = true; }
+    else if (opz.tipo) { tipo = opz.tipo; certo = true; }
     else if (primo.startsWith('+') || (imp && imp.esplicito === 1)) { tipo = 'entrata'; certo = true; }
     else if (primo.startsWith('-') || primo.startsWith('−') || (imp && imp.esplicito === -1)) { tipo = 'uscita'; certo = true; }
     else if (investe) { certo = true; tipo = forzata === RITIRATO ? 'entrata' : 'uscita'; }
     else if (trova(spaziato, ENTRA) || trova(spaziato, ['provvigione', 'provvigioni', 'stipendio'], true)) {
+      // «commissione bonifico 1», «commissione binance 2»: una spesa della banca o dell'exchange, non una provvigione
       const soloCommissione = !trova(spaziato, ENTRA.filter(p => !p.startsWith('commission')));
-      if (soloCommissione && trova(spaziato, BANCA)) { tipo = 'uscita'; }
+      if (soloCommissione && (trova(spaziato, BANCA) || cripto)) { tipo = 'uscita'; }
       else tipo = 'entrata';
       certo = true;
     } else if (trova(spaziato, ESCE)) { certo = true; }
@@ -591,6 +746,23 @@
     let descrizione = resto.map(t => t.orig).join(' ').replace(/\s+'/g, '\'').replace(/'\s+/g, '\'').trim();
     descrizione = descrizione.replace(/\s+([,.])/g, '$1');
     if (descrizione) descrizione = descrizione[0].toUpperCase() + descrizione.slice(1);
+
+    if (sposta) {
+      // senza i verbi della direzione davanti: «messo 200 su binance» → «Binance», «comprato bitcoin» → «Bitcoin»;
+      // se non resta niente, il nome dello spostamento («prelievo 50» → «Prelievo», «sposto 100 su cripto» → «Spostamento»)
+      const via = t => DIREZIONE.has(pulita(t)) || RIEMPITIVI.has(t.norm) || PREP_DA.has(t.norm) || PREP_A.has(t.norm) || PREP_CON.has(t.norm) || ARTICOLI.has(t.norm);
+      while (resto.length && via(resto[0])) resto.shift();
+      descrizione = resto.map(t => t.orig).join(' ').replace(/\s+'/g, '\'').replace(/'\s+/g, '\'').replace(/\s+([,.])/g, '$1').trim();
+      descrizione = descrizione ? descrizione[0].toUpperCase() + descrizione.slice(1) : NOME_SPOSTAMENTO[genere];
+      risultato.tipo = 'spostamento';
+      risultato.categoria = SPOSTAMENTO;
+      risultato.descrizione = descrizione;
+      risultato.conto = risultato.da = sposta.da;
+      risultato.verso = sposta.verso;
+      risultato.contoDa = 'frase';
+      Object.assign(risultato.certo, { tipo: true, categoria: true, conto: true });
+      return risultato;
+    }
 
     // categoria: prima le parole imparate dalle correzioni, poi gli investimenti, poi il dizionario
     let categoria = null, catCerta = false;
@@ -606,7 +778,7 @@
       if (c) { categoria = c; catCerta = true; }
     }
     if (!categoria) {
-      const c = categoriaPer(tipo, spaziato, opz.categorie);
+      const c = categoriaPer(tipo, spaziatoCat, opz.categorie);
       if (c) {
         categoria = c.nome; catCerta = true;
         if (c.base === 'Svago' && c.parola === 'bar' && barDiGiorno(spaziato, risultato.data, adesso)) {
@@ -615,6 +787,11 @@
         }
       }
     }
+    // «commissione bancomat 1»: tolto il modo di pagare non resta niente, ma è una spesa della banca
+    if (!categoria && tipo === 'uscita' && menz.length && trova(spaziato, COSTO)) {
+      const c = perBase('uscita', 'Banca e commissioni', opz.categorie);
+      if (c) { categoria = c; catCerta = true; }
+    }
     if (!categoria) categoria = ripiego(tipo, opz.categorie);
 
     risultato.tipo = tipo;
@@ -622,6 +799,15 @@
     risultato.descrizione = descrizione || categoria;
     risultato.certo.tipo = certo;
     risultato.certo.categoria = catCerta;
+    // il conto: quello detto nella frase, poi quello che sta guardando, poi quello imparato dalle correzioni, poi Digitale
+    const imparatiConti = opz.imparatiConti || {};
+    const dalleParole = paroleSignificative(descrizione).map(p => imparatiConti[p]).find(c => CONTI.some(x => x.id === c));
+    if (menz.length) { risultato.conto = menz[0].conto; risultato.contoDa = 'frase'; }
+    else if (opz.conto) { risultato.conto = opz.conto; risultato.contoDa = 'vista'; }
+    else if (dalleParole) { risultato.conto = dalleParole; risultato.contoDa = 'imparato'; }
+    else { risultato.conto = CONTO_BASE; risultato.contoDa = 'base'; }
+    risultato.verso = null;
+    risultato.certo.conto = risultato.contoDa === 'frase';
     return risultato;
   }
 
@@ -682,5 +868,5 @@
   }
 
   globale.Analizza = { analizza, analizzaFrasi, dividi, CATEGORIE, RIPIEGO, RINOMINATE, ICONE_CAMBIATE, INVESTIMENTI, RITIRATO,
-    elenco, ripiego, perBase, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
+    CONTI, CONTO_BASE, SPOSTAMENTO, elenco, ripiego, perBase, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
 })(typeof window !== 'undefined' ? window : globalThis);

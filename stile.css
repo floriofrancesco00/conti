@@ -416,3 +416,24 @@ body.voce-attiva .suggerimento { display: none; }
 .passi li::marker { font-weight: 700; color: var(--accento); }
 .passi .tasto-primario { display: block; width: 100%; }
 .indirizzo { font-weight: 600; word-break: break-all; -webkit-user-select: all; user-select: all; }
+
+/* i tre conti (15/11/2026): la scelta in cima al riepilogo, il foglio del conto, gli spostamenti */
+.scelta-conto { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; }
+.scelta-conto button {
+  border: 0; background: transparent; border-radius: 14px; min-height: 54px; padding: 4px 2px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  font-size: 13px; font-weight: 600; color: var(--testo-2);
+}
+.scelta-conto .sc-icona { font-size: 20px; line-height: 1.1; }
+.scelta-conto button[aria-pressed="true"] { background: var(--superficie); color: var(--testo); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.16); }
+.scelta-conto button:active { filter: brightness(0.95); }
+.griglia-conti { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.conto-opzione { flex-direction: column; justify-content: center; text-align: center; min-height: 72px; gap: 2px; }
+.conto-opzione .conto-icona { font-size: 24px; line-height: 1.1; }
+.riep-spostamenti { font-size: 14px; color: var(--testo-2); margin-top: 10px; font-variant-numeric: tabular-nums; }
+.mov-importo.spostamento { color: var(--testo-2); }
+.mov-importo.spostamento.entrata { color: var(--positivo); }
+button.aut-riga { width: 100%; background: transparent; border: 0; border-top: 1px solid var(--filo); border-radius: 0; text-align: left; color: inherit; font: inherit; font-size: 15px; }
+button.aut-riga span:last-child { color: var(--accento); }
+button.aut-riga:active { background: var(--superficie-2); }
+.nota-campo { font-size: 13px !important; color: var(--testo-tenue) !important; margin-top: 6px !important; }
