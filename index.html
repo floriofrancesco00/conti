@@ -104,7 +104,10 @@
       </div>
     </div>
     <div class="riepilogo">
-      <p class="hero-etichetta" id="heroEtichetta"></p>
+      <div class="hero-riga">
+        <p class="hero-etichetta" id="heroEtichetta"></p>
+        <button id="occhio" class="tasto-occhio" type="button" aria-pressed="false" aria-label="Mostra il saldo"><svg class="occhio-aperto" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5C6.5 5 2.7 9.1 1.5 12c1.2 2.9 5 7 10.5 7s9.3-4.1 10.5-7C21.3 9.1 17.5 5 12 5Zm0 11.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Zm0-2.3a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4Z"/></svg><svg class="occhio-chiuso" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3.3 2.3 2 3.6l3.2 3.2C3.5 8.1 2.2 9.9 1.5 12c1.2 2.9 5 7 10.5 7 2 0 3.8-.5 5.3-1.4l3.1 3.1 1.3-1.3L3.3 2.3Zm8.7 14.2a4.5 4.5 0 0 1-4.1-6.3l1.7 1.7a2.2 2.2 0 0 0 2.7 2.7l1.7 1.7c-.6.1-1.3.2-2 .2Zm0-11.5c-1.4 0-2.7.3-3.9.7l1.9 1.9a4.5 4.5 0 0 1 5.8 5.8l3.2 3.2c1.7-1.3 3-2.9 3.5-4.6C21.3 9.1 17.5 5 12 5Z"/></svg></button>
+      </div>
       <p class="hero" id="heroValore"></p>
       <p class="hero-sotto" id="heroSotto"></p>
       <div class="tessere">
@@ -118,7 +121,10 @@
   <section id="sezAutonomia" class="carta sezione" aria-labelledby="titoloAutonomia">
     <div class="titolo-sez">
       <h3 id="titoloAutonomia">Mesi di autonomia</h3>
-      <button id="modSaldo" class="tasto-piccolo" type="button" hidden>Correggi saldo</button>
+      <div class="titolo-sez-tasti">
+        <button id="occhioSaldi" class="tasto-occhio" type="button" aria-pressed="false" aria-label="Mostra il saldo" hidden><svg class="occhio-aperto" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 5C6.5 5 2.7 9.1 1.5 12c1.2 2.9 5 7 10.5 7s9.3-4.1 10.5-7C21.3 9.1 17.5 5 12 5Zm0 11.5a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9Zm0-2.3a2.2 2.2 0 1 0 0-4.4 2.2 2.2 0 0 0 0 4.4Z"/></svg><svg class="occhio-chiuso" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3.3 2.3 2 3.6l3.2 3.2C3.5 8.1 2.2 9.9 1.5 12c1.2 2.9 5 7 10.5 7 2 0 3.8-.5 5.3-1.4l3.1 3.1 1.3-1.3L3.3 2.3Zm8.7 14.2a4.5 4.5 0 0 1-4.1-6.3l1.7 1.7a2.2 2.2 0 0 0 2.7 2.7l1.7 1.7c-.6.1-1.3.2-2 .2Zm0-11.5c-1.4 0-2.7.3-3.9.7l1.9 1.9a4.5 4.5 0 0 1 5.8 5.8l3.2 3.2c1.7-1.3 3-2.9 3.5-4.6C21.3 9.1 17.5 5 12 5Z"/></svg></button>
+        <button id="modSaldo" class="tasto-piccolo" type="button" hidden>Correggi saldo</button>
+      </div>
     </div>
     <div id="autonomiaCorpo"></div>
   </section>

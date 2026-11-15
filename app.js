@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.15-1929';
+  const VERSIONE = '2026.11.15-2208';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -150,6 +150,13 @@
   // percentuale al centesimo: 12,35%
   const percento = (parte, tutto) => (tutto ? Math.round(parte / tutto * 10000) / 100 : 0).toFixed(2).replace('.', ',') + '%';
   const conSegno = cent => (cent > 0 ? '+' : '') + euro(cent);
+  // Il saldo nascosto (15/11/2026, sua richiesta: «il saldo è nascosto a meno che non schiacci su un occhio»): il saldo
+  // del mese, i saldi dei conti e la colonna Saldo dell'anno si vedono solo toccando l'occhio. Entrate, uscite e
+  // movimenti restano visibili. Si rinasconde ogni volta che si apre l'app o ci si torna.
+  let saldoVisibile = false;
+  const COPERTO = '••••• €';
+  const saldoEuro = cent => (saldoVisibile ? euro(cent) : COPERTO);
+  const saldoConSegno = cent => (saldoVisibile ? conSegno(cent) : COPERTO);
   const MESI = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno', 'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
   const GIORNI_BREVI = ['dom', 'lun', 'mar', 'mer', 'gio', 'ven', 'sab'];
   const GIORNI = ['domenica', 'lunedì', 'martedì', 'mercoledì', 'giovedì', 'venerdì', 'sabato'];
@@ -260,7 +267,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'i tre conti: in alto Tutto, Contanti, Digitale e Cripto; «prelievo 50» o «comprato bitcoin 100» sono spostamenti fra conti; un saldo per conto';
+  const NOVITA = 'saldo nascosto: si vede toccando l’occhio; «Ricomincia da zero» può tenere Cripto e spese ricorrenti';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -1293,12 +1300,12 @@
     corpo.appendChild(el('p', 'aut-mesi', mesi !== null ? formatoMesi(mesi) : '—'));
     corpo.appendChild(el('p', 'aut-testo', spiegazione));
     const righe = el('div', 'aut-righe');
-    for (const c of CONTI_LIQUIDI) rigaSaldo(righe, nomeConto(c) + ' oggi', saldi[c] !== null ? euro(saldi[c]) : 'da inserire', () => apriSaldo(c));
+    for (const c of CONTI_LIQUIDI) rigaSaldo(righe, nomeConto(c) + ' oggi', saldi[c] !== null ? saldoEuro(saldi[c]) : 'da inserire', () => apriSaldo(c));
     if (sa !== null) {
       if (ft) rigaSaldo(righe, 'Da tenere per le tasse', tasse ? '−' + euro(tasse) : euro(0));
-      rigaSaldo(righe, 'Spendibili', euro(spendibili), null, true);
+      rigaSaldo(righe, 'Spendibili', saldoEuro(spendibili), null, true);
     }
-    rigaSaldo(righe, nomeConto('cripto') + ' · non conta', saldi.cripto !== null ? euro(saldi.cripto) : 'da inserire', () => apriSaldo('cripto'));
+    rigaSaldo(righe, nomeConto('cripto') + ' · non conta', saldi.cripto !== null ? saldoEuro(saldi.cripto) : 'da inserire', () => apriSaldo('cripto'));
     corpo.appendChild(righe);
     corpo.appendChild(el('p', stato.saldi.daDividere ? 'avviso' : 'nota', stato.saldi.daDividere
       ? 'Il saldo che avevi inserito era conti e contanti insieme: ora sta in 💳 Digitale. Correggilo e inserisci a parte i contanti.'
@@ -1320,10 +1327,10 @@
       corpo.appendChild(r);
       return;
     }
-    corpo.appendChild(el('p', 'aut-mesi', euro(v)));
+    corpo.appendChild(el('p', 'aut-mesi', saldoEuro(v)));
     corpo.appendChild(el('p', 'aut-testo', cosa + ' Aggiornato coi movimenti e gli spostamenti che segni.'));
     const s = stato.saldi[c];
-    corpo.appendChild(el('p', 'nota', 'Saldo inserito ' + etichettaGiorno(s.data).toLowerCase() + ': ' + euro(s.importo) + '. Ricontrollalo ogni tanto.'));
+    corpo.appendChild(el('p', 'nota', 'Saldo inserito ' + etichettaGiorno(s.data).toLowerCase() + ': ' + saldoEuro(s.importo) + '. Ricontrollalo ogni tanto.'));
   }
 
   // I saldi: tutti e tre insieme, o uno solo («solo»). Un campo non toccato tiene il saldo di prima, con la sua data.
@@ -1630,9 +1637,9 @@
     const lista = stato.movimenti.filter(m => nelPeriodo(m) && tocca(m, conto));
     const t = totali(lista, conto);
     $('heroEtichetta').textContent = (vista.modo === 'anno' ? 'Saldo del ' + vista.anno : 'Saldo di ' + MESI[vista.mese]) + (conto ? ' ' + inConto(conto) : '');
-    $('heroValore').textContent = conSegno(t.saldo);
+    $('heroValore').textContent = saldoConSegno(t.saldo);
     let sotto = conto && (t.arrivati || t.partiti) ? 'Entrate meno uscite, più gli spostamenti.' : 'Entrate meno uscite.';
-    if (t.tasse > 0) sotto += ' Tolti ' + euro(t.tasse) + ' per le tasse, restano ' + euro(t.restano) + '.';
+    if (t.tasse > 0) sotto += ' Tolti ' + euro(t.tasse) + ' per le tasse, restano ' + saldoEuro(t.restano) + '.';
     // i fissi del mese che devono ancora arrivare contano già (dal 10/11/2026): lo si dice
     const oggiIso = isoOggi(), futuri = lista.filter(m => m.data > oggiIso && !eSpostamento(m) && tocca(m, conto));
     if (futuri.length) {
@@ -1667,8 +1674,24 @@
     if (vista.modo === 'anno') disegnaMesi();
     disegnaLista(lista);
     disegnaAutonomia();
+    disegnaOcchi();
     disegnaBanner();
     disegnaBannerProva();
+  }
+
+  // i due occhi (accanto al saldo del mese e nel riquadro dei saldi) dicono e cambiano la stessa cosa
+  function disegnaOcchi() {
+    for (const id of ['occhio', 'occhioSaldi']) {
+      const b = $(id);
+      b.setAttribute('aria-pressed', String(saldoVisibile));
+      b.setAttribute('aria-label', saldoVisibile ? 'Nascondi il saldo' : 'Mostra il saldo');
+      b.classList.toggle('aperto', saldoVisibile);
+    }
+    $('occhioSaldi').hidden = $('modSaldo').hidden;   // senza saldi inseriti non c'è niente da nascondere
+  }
+  function cambiaOcchio(v) {
+    saldoVisibile = v === undefined ? !saldoVisibile : !!v;
+    disegna();
   }
 
   // In cima al riepilogo: tutti insieme o un conto solo. Toccando un conto si vede solo quello (entrate, uscite,
@@ -1743,7 +1766,7 @@
       tr.appendChild(el('td', '', maiuscola(MESI[mm])));
       tr.appendChild(el('td', '', euro(t.entrate)));
       tr.appendChild(el('td', '', euro(t.uscite)));
-      tr.appendChild(el('td', '', conSegno(t.saldo)));
+      tr.appendChild(el('td', '', saldoConSegno(t.saldo)));
       const apri = () => { vista.modo = 'mese'; vista.mese = mm; vista.filtro = null; disegna(); window.scrollTo({ top: 0, behavior: 'smooth' }); };
       tr.addEventListener('click', apri);
       tr.addEventListener('keydown', e => { if (e.key === 'Enter') apri(); });
@@ -2228,7 +2251,7 @@
       const tf = totaleFissi(), nf = stato.ricorrenti.length;
       voce('🔁 Movimenti fissi', nf ? nf + (nf === 1 ? ' impostato' : ' impostati') + (tf.uscite ? ' · uscite ' + euro(tf.uscite) + ' al mese' : '') : 'Affitto, abbonamenti, PAC, palestra: si segnano da soli ogni mese.', apriFissi);
       const saldi = A.CONTI.map(c => [c, saldoAttuale(c.id)]).filter(([, v]) => v !== null);
-      voce('🏦 Saldi dei conti', saldi.length ? saldi.map(([c, v]) => c.icona + ' ' + euro(v)).join(' · ') + ' · tocca per correggerli'
+      voce('🏦 Saldi dei conti', saldi.length ? (saldoVisibile ? saldi.map(([c, v]) => c.icona + ' ' + euro(v)).join(' · ') : 'Nascosti dall\'occhio') + ' · tocca per correggerli'
         : 'Contanti, digitale e cripto: per sapere quanti mesi reggi senza entrate.', () => apriSaldo());
       voce('🧾 Tasse da accantonare', stato.tasse.attiva ? String(stato.tasse.percentuale).replace('.', ',') + '% di ' + (stato.tasse.categorie.join(', ') || 'nessuna categoria') : 'Spento', apriTasse);
       voce('🏷️ Categorie', 'Aggiungi, rinomina, cambia simbolo, nascondi o elimina.', apriCategorie);
@@ -2255,10 +2278,10 @@
       bIco.appendChild(el('small', '', 'Per avere «' + ED.titolo + '» con l\'icona nuova sulla schermata Home: si porta tutto su un\'icona nuova.'));
       azioni.appendChild(bIco);
 
-      const bZero = tasto('azione', '🧨 Ricomincia da zero', ricomincia);
+      const bZero = tasto('azione', '🧨 Ricomincia da zero', () => ricomincia());
       bZero.style.color = 'var(--critico)';
       bZero.disabled = !n;
-      bZero.appendChild(el('small', '', 'Cancella tutti i movimenti, per esempio quelli di prova. Impostazioni e parole imparate restano.'));
+      bZero.appendChild(el('small', '', 'Cancella i movimenti, per esempio quelli di prova: tutti, tutti tranne Cripto e spese ricorrenti, o i conti che scegli. Impostazioni e parole imparate restano.'));
       azioni.appendChild(bZero);
 
       corpo.appendChild(el('p', 'nota', 'I movimenti esistono solo dentro questa app sul telefono. Se cancelli l\'icona dalla schermata Home o i dati del sito, spariscono: esporta ogni tanto.'));
@@ -2386,26 +2409,74 @@
   }
 
   // Due conferme (la seconda chiesta da Francesco il 10/11/2026), poi qualche secondo per «Annulla».
+  // Dal 15/11/2026 (sua richiesta) si sceglie cosa: tutto, «tutto tranne Cripto e spese ricorrenti», o i conti scelti
+  // a mano, tenendo o no le spese ricorrenti (i movimenti dei fissi: cancellati non tornano, il loro mese è già fatto).
+  // Un movimento si cancella solo se tutti i conti che tocca sono fra quelli scelti: lo spostamento Digitale → Cripto
+  // resta se si tiene Cripto, se no il saldo cripto perderebbe da dove sono arrivati i soldi.
+  const TRANNE_CRIPTO = { conti: ['contanti', 'digitale'], tieniFissi: true };
+  const daCancellare = scelta => m => !(scelta.tieniFissi && m.ricorrente) &&
+    (eSpostamento(m) ? [m.da, m.verso] : [contoDi(m)]).every(c => scelta.conti.includes(c));
+  const movimenti_ = k => k + (k === 1 ? ' movimento' : ' movimenti');
   function ricomincia() {
     const n = stato.movimenti.length;
+    const scelta = { conti: CONTI_ID.slice(), tieniFissi: false };
     apriFoglio('Ricomincia da zero', corpo => {
-      corpo.appendChild(el('p', '', 'Cancello tutti i ' + n + ' movimenti. Restano le impostazioni (movimenti fissi, saldi, categorie, tasse), le parole che l\'app ha imparato e lo sfondo.'));
-      corpo.appendChild(el('p', '', 'Se vuoi tenerne una copia, prima fai «Copia per l\'AI» con «Tutto».'));
+      corpo.appendChild(el('p', '', 'Cosa cancello? Restano sempre le impostazioni (movimenti fissi, saldi, categorie, tasse), le parole che l\'app ha imparato e lo sfondo.'));
+      const kp = stato.movimenti.filter(daCancellare(TRANNE_CRIPTO)).length;
+      const pre = tasto('azione', '🧹 Tutto tranne Cripto e spese ricorrenti', () => ricominciaConferma(TRANNE_CRIPTO, kp));
+      pre.id = 'cancellaTranneCripto';
+      pre.disabled = !kp;
+      pre.appendChild(el('small', '', kp ? 'Cancello ' + movimenti_(kp) + ' in contanti e digitale. Restano quelli in cripto, gli spostamenti da e verso Cripto e le spese ricorrenti.'
+        : 'Non c\'è niente da cancellare: sono tutti in cripto o spese ricorrenti.'));
+      pre.style.marginTop = '12px';
+      corpo.appendChild(pre);
+      corpo.appendChild(el('div', 'titoletto', 'Oppure scegli tu quali conti'));
+      const caselle = [];
+      for (const c of A.CONTI) {
+        const i = interruttore(c.icona + ' ' + c.nome, true);
+        i.casella.dataset.conto = c.id;
+        caselle.push([c.id, i.casella]);
+        corpo.appendChild(i.etichetta);
+      }
+      const fissi = interruttore('🔁 Tieni le spese ricorrenti', false);
+      fissi.casella.id = 'tieniRicorrenti';
+      corpo.appendChild(fissi.etichetta);
+      corpo.appendChild(el('p', 'nota', 'Uno spostamento si cancella solo se cancelli tutti e due i suoi conti: «comprato bitcoin» resta se tieni Cripto. Se vuoi tenerne una copia, prima fai «Copia per l\'AI» con «Tutto».'));
       const copia = tasto('tasto-secondario', '🤖 Prima fai una copia', () => apriEsporta('tutto'));
       copia.style.marginTop = '12px';
       corpo.appendChild(copia);
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-secondario', 'Annulla', () => chiudiFoglio(true)));
-      riga.appendChild(tasto('tasto-pericolo', 'Cancella tutto', () => ricominciaConferma(n)));
+      const via = tasto('tasto-pericolo', '', () => {
+        const k = stato.movimenti.filter(daCancellare(scelta)).length;
+        if (k) ricominciaConferma(Object.assign({}, scelta), k);
+      });
+      via.id = 'cancellaScelti';
+      riga.appendChild(via);
       corpo.appendChild(riga);
+      // il tasto dice quanti ne cancella, cambiando le caselle senza ridisegnare il foglio (che tornerebbe in cima)
+      const conta = () => {
+        scelta.conti = caselle.filter(([, x]) => x.checked).map(([id]) => id);
+        scelta.tieniFissi = fissi.casella.checked;
+        const k = stato.movimenti.filter(daCancellare(scelta)).length;
+        via.textContent = k === n && k ? 'Cancella tutto' : 'Cancella ' + movimenti_(k);
+        via.disabled = !k;
+      };
+      caselle.forEach(([, x]) => x.addEventListener('change', conta));
+      fissi.casella.addEventListener('change', conta);
+      conta();
     });
   }
-  function ricominciaConferma(n) {
+  function ricominciaConferma(scelta, n) {
+    const parte = scelta.conti.length < CONTI_ID.length || scelta.tieniFissi;
     apriFoglio('Sei proprio sicuro?', corpo => {
-      corpo.appendChild(el('p', 'allarme', '🧨 Stai per cancellare ' + n + (n === 1 ? ' movimento' : ' movimenti') + '.'));
+      const dove = scelta.conti.map(inConto);
+      const elenco = dove.length > 1 ? dove.slice(0, -1).join(', ') + ' e ' + dove[dove.length - 1] : dove.join('');
+      corpo.appendChild(el('p', 'allarme', '🧨 Stai per cancellare ' + movimenti_(n) + (parte ? ' ' + elenco : '') + '.'));
+      if (scelta.tieniFissi) corpo.appendChild(el('p', '', 'Le spese ricorrenti restano.'));
       corpo.appendChild(el('p', '', 'Dopo qualche secondo non si torna più indietro: rimarrebbero solo le copie che hai esportato.'));
       const riga = el('div', 'riga-tasti colonna');
-      riga.appendChild(tasto('tasto-pericolo pieno', 'Sì, cancella ' + n + (n === 1 ? ' movimento' : ' movimenti'), () => cancella(() => true, 'Cancellati ' + n + ' movimenti')));
+      riga.appendChild(tasto('tasto-pericolo pieno', 'Sì, cancella ' + movimenti_(n), () => cancella(daCancellare(scelta), 'Cancellati ' + movimenti_(n))));
       riga.appendChild(tasto('tasto-secondario', 'No, tienili', () => chiudiFoglio(true)));
       corpo.appendChild(riga);
     });
@@ -2872,6 +2943,10 @@
   $('velo').addEventListener('click', chiudiFoglio);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(); });
   $('filtro').addEventListener('click', () => { vista.filtro = null; disegna(); });
+  $('occhio').addEventListener('click', () => cambiaOcchio());
+  $('occhioSaldi').addEventListener('click', () => cambiaOcchio());
+  // uscendo dall'app il saldo si rinasconde: tornandoci si vede coperto
+  document.addEventListener('visibilitychange', () => { if (document.hidden && saldoVisibile) { saldoVisibile = false; disegna(); } });
   document.querySelectorAll('#sceltaConto button').forEach(b => b.addEventListener('click', () => scegliVistaConto(b.dataset.conto)));
   $('prec').addEventListener('click', () => {
     if (vista.modo === 'anno') vista.anno--;
@@ -2955,7 +3030,7 @@
     versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, testoLeggibile, importaTesto,
     generaRicorrenti, saldoAttuale, liquidi, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
-    vista: () => vista, scegliVistaConto,
+    vista: () => vista, scegliVistaConto, saldoVisibile: () => saldoVisibile,
     controllaVersione, novita: NOVITA
   };
 })();

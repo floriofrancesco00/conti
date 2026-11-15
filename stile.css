@@ -437,3 +437,16 @@ button.aut-riga { width: 100%; background: transparent; border: 0; border-top: 1
 button.aut-riga span:last-child { color: var(--accento); }
 button.aut-riga:active { background: var(--superficie-2); }
 .nota-campo { font-size: 13px !important; color: var(--testo-tenue) !important; margin-top: 6px !important; }
+
+/* il saldo dietro l'occhio (15/11/2026) */
+.hero-riga { display: flex; align-items: center; gap: 4px; }
+.titolo-sez-tasti { display: flex; align-items: center; gap: 6px; }
+.tasto-occhio {
+  min-width: 40px; min-height: 36px; border: 0; background: transparent; border-radius: 10px; padding: 0 8px;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--testo-2);
+}
+.tasto-occhio svg { fill: currentColor; }
+.tasto-occhio .occhio-chiuso { display: none; }
+.tasto-occhio.aperto .occhio-aperto { display: none; }
+.tasto-occhio.aperto .occhio-chiuso { display: block; }
+.tasto-occhio:active { background: var(--superficie-2); }
