@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.15-2208';
+  const VERSIONE = '2026.11.15-2334';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -267,7 +267,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'saldo nascosto: si vede toccando l’occhio; «Ricomincia da zero» può tenere Cripto e spese ricorrenti';
+  const NOVITA = 'a dicembre «Cancella le prove» tiene i movimenti in cripto e le spese ricorrenti';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -2482,19 +2482,25 @@
     });
   }
 
+  // Dal 15/11/2026 (sua richiesta) le prove di novembre si cancellano tranne quelle in Cripto e le spese ricorrenti,
+  // come «Tutto tranne Cripto e spese ricorrenti». Francesco: usata a dicembre, questa cancellazione si toglie dal
+  // codice (riquadro bannerProva, INIZIO_SUL_SERIO, pref.proveChiuse).
+  const unaProva = m => m.data < INIZIO_SUL_SERIO && daCancellare(TRANNE_CRIPTO)(m);
   function disegnaBannerProva() {
     if (!INIZIO_SUL_SERIO) { $('bannerProva').hidden = true; return; }
-    const prove = stato.movimenti.filter(m => m.data < INIZIO_SUL_SERIO);
+    const prove = stato.movimenti.filter(unaProva);
+    const tenute = stato.movimenti.filter(m => m.data < INIZIO_SUL_SERIO && !unaProva(m)).length;
     const mostra = isoOggi() >= INIZIO_SUL_SERIO && !pref.proveChiuse && prove.length > 0;
     $('bannerProva').hidden = !mostra;
     if (mostra) $('bannerProvaTesto').textContent = 'Dal 1° dicembre si fa sul serio. Cancello i ' + prove.length +
-      (prove.length === 1 ? ' movimento di prova segnato' : ' movimenti di prova segnati') + ' prima?';
+      (prove.length === 1 ? ' movimento di prova segnato' : ' movimenti di prova segnati') + ' prima?' +
+      (tenute ? ' Tengo ' + (tenute === 1 ? 'quello' : 'i ' + tenute) + ' in cripto e delle spese ricorrenti.' : ' Cripto e spese ricorrenti restano.');
   }
   $('provaTieni').addEventListener('click', () => { pref.proveChiuse = true; scriviPref(); disegnaBannerProva(); });
   $('provaCancella').addEventListener('click', () => {
     pref.proveChiuse = true;
     scriviPref();
-    cancella(m => m.data < INIZIO_SUL_SERIO, 'Cancellate le prove');
+    cancella(unaProva, 'Cancellate le prove: cripto e spese ricorrenti restano');
   });
 
   // ================================================================ sfondi

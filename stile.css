@@ -450,3 +450,6 @@ button.aut-riga:active { background: var(--superficie-2); }
 .tasto-occhio.aperto .occhio-aperto { display: none; }
 .tasto-occhio.aperto .occhio-chiuso { display: block; }
 .tasto-occhio:active { background: var(--superficie-2); }
+
+/* l avviso delle prove di novembre: la frase sopra, i tasti sotto (col testo lungo si stringeva in una colonna) */
+#bannerProva p { flex-basis: 100%; }
