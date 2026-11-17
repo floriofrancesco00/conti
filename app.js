@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.15-2334';
+  const VERSIONE = '2026.11.17-1700';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -10,6 +10,7 @@
   const INIZIO_SUL_SERIO = ED.inizioSulSerio;   // null nelle edizioni senza periodo di prova
   const A = window.Analizza;
   const V = window.Voce;
+  const S = window.Suoni;   // dal 17/11/2026: registrazioni vere, vedi suoni.js
   const $ = id => document.getElementById(id);
   const GIORNO_MS = 86400000;
   const TIPI_DATI = ['uscita', 'entrata'];
@@ -116,9 +117,29 @@
   let stato = carica();
   let persistenzaChiesta = false;
 
+  // Lo spazio (17/11/2026). Safari dà a ogni sito circa 5 MB di localStorage, contati in caratteri da 2 byte: circa
+  // 2,5 milioni di caratteri. Un movimento ne pesa circa 220: a 8 movimenti al giorno bastano circa 4 anni. Prima di
+  // arrivarci l'app lo dice (al 60%), e allora i movimenti vanno spostati in IndexedDB, che ha spazio per molto di più.
+  const SPAZIO_CARATTERI = 2500000;
+  let pesoStato = 0, pesoAltro = null;
+  function spazioUsato() {
+    if (pesoAltro === null) {
+      pesoAltro = 0;
+      try {
+        for (let i = 0; i < localStorage.length; i++) {
+          const k = localStorage.key(i);
+          if (k === CHIAVE) { if (!pesoStato) pesoStato = (localStorage.getItem(k) || '').length; continue; }
+          pesoAltro += k.length + (localStorage.getItem(k) || '').length;
+        }
+      } catch (e) { /* niente */ }
+    }
+    return (pesoStato + pesoAltro + CHIAVE.length) / SPAZIO_CARATTERI;
+  }
   function scrivi() {
     try {
-      localStorage.setItem(CHIAVE, JSON.stringify(stato));
+      const testo = JSON.stringify(stato);
+      localStorage.setItem(CHIAVE, testo);
+      pesoStato = testo.length;
     } catch (e) {
       mostraToast('Non riesco a salvare: spazio del telefono pieno?');
       return false;
@@ -267,7 +288,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'a dicembre «Cancella le prove» tiene i movimenti in cripto e le spese ricorrenti';
+  const NOVITA = 'suoni veri all’apertura (Menù → Suoni), «Le solite» a un tocco, 🔍 Cerca, confronto col mese prima e grafico dell’anno';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -729,9 +750,12 @@
     if (!testo.trim()) {
       proposte = []; correnti = []; scelte = [];
       $('anteprima').hidden = true;
-      $('suggerimento').hidden = false;
+      // le solite spese al posto del suggerimento; il suggerimento solo all'inizio, finché i movimenti sono pochi
+      const solite = disegnaScorciatoie();
+      $('suggerimento').hidden = solite > 0 || stato.movimenti.length >= 30;
       return;
     }
+    $('scorciatoie').hidden = true;
     const opz = opzioniAnalisi();
     proposte = A.analizzaFrasi(testo, opz);
     if (scelte.length !== proposte.length) scelte = proposte.map(() => ({}));
@@ -748,6 +772,8 @@
       if (eSpostamento(r)) copiaConto(r, { tipo: 'spostamento', da: s.da || r.da || r.conto, verso: s.verso || r.verso });
       else if (s.conto) { r.conto = s.conto; r.certo.conto = true; }
       if (s.data) r.data = s.data;
+      // una delle solite, finché la frase è quella: l'importo è quello di allora, anche se la frase lo leggesse diverso
+      if (s.importo && s.testoSolita === testo) r.importo = s.importo;
       if (s.ripeti !== undefined) r.ripeti = s.ripeti;
       if (r.ripeti) {   // la data è il giorno scelto, in questo mese o nel prossimo
         r.giorno = s.giorno || r.giornoMese || daIso(r.data).getDate();
@@ -873,6 +899,49 @@
     ? '🔁 Ogni ' + (c.giorno || daIso(c.data).getDate()) + (c.inizio === 'prossimo' ? ', dal mese prossimo' : ' del mese')
     : etichettaGiorno(c.data));
 
+  // ---------------------------------------------------------------- le solite (17/11/2026)
+  // Le spese che ripete uguali (stessa descrizione, importo, tipo e conto) almeno due volte negli ultimi 90 giorni:
+  // fino a quattro, sotto il riquadro vuoto. Un tocco le scrive già fatte (anche categoria e conto di allora), poi Salva.
+  // Così il caffè di tutti i giorni sono due tocchi. I movimenti fissi no: si segnano già da soli.
+  function soliteSpese() {
+    const dal = A.isoDa(new Date(oggi().getTime() - 90 * GIORNO_MS)), oggiIso = isoOggi();
+    const gruppi = new Map();
+    for (const m of stato.movimenti) {
+      if (m.ricorrente || m.data < dal || m.data > oggiIso || !m.descrizione || !(m.importo > 0) || !tocca(m, vista.conto)) continue;
+      const k = [A.normalizza(m.descrizione), m.importo, m.tipo, eSpostamento(m) ? m.da + '>' + m.verso : contoDi(m)].join('|');
+      const g = gruppi.get(k) || { m, n: 0, quando: '' };
+      g.n++;
+      const q = m.data + (m.creato || '');
+      if (q > g.quando) { g.quando = q; g.m = m; }
+      gruppi.set(k, g);
+    }
+    return [...gruppi.values()].filter(g => g.n >= 2).sort((a, b) => b.n - a.n || b.quando.localeCompare(a.quando)).slice(0, 4).map(g => g.m);
+  }
+  // l'importo come lo si scrive in una frase: «1,20», «50», «1800»
+  const importoInFrase = c => (c % 100 ? (c / 100).toFixed(2).replace('.', ',') : String(c / 100));
+  function disegnaScorciatoie() {
+    const box = $('scorciatoie'), lista = $('scorciatoieLista');
+    const solite = statoVoce === 'fermo' ? soliteSpese() : [];
+    lista.textContent = '';
+    for (const m of solite) {
+      const b = tasto('chip senza-freccia solita', '', () => usaSolita(m));
+      b.appendChild(el('span', 'solita-icona', eSpostamento(m) ? '↔' : iconaDi(m.tipo, m.categoria)));
+      b.appendChild(el('span', 'solita-desc', m.descrizione));
+      b.appendChild(el('span', 'solita-importo' + (m.tipo === 'entrata' ? ' entrata' : ''), (m.tipo === 'entrata' ? '+' : '') + euro(m.importo)));
+      b.setAttribute('aria-label', 'Scrivi ' + m.descrizione + ' ' + euro(m.importo) + ', poi Salva');
+      lista.appendChild(b);
+    }
+    box.hidden = !solite.length;
+    return solite.length;
+  }
+  function usaSolita(m) {
+    const testo = m.descrizione + ' ' + importoInFrase(m.importo);
+    campoFrase.value = testo;
+    scelte = [Object.assign({ tipo: m.tipo, importo: m.importo, testoSolita: testo },
+      eSpostamento(m) ? { da: m.da, verso: m.verso } : { conto: contoDi(m), categoria: m.categoria })];
+    rileggi();
+  }
+
   function impara(descrizione, tipo, categoria) {
     for (const p of A.paroleSignificative(descrizione)) stato.imparate[p] = { tipo, categoria };
     const chiavi = Object.keys(stato.imparate);   // tetto: le ultime 600 parole
@@ -889,6 +958,7 @@
 
   function salvaFrase() {
     if (!correnti.length || correnti.some(c => !(c.importo > 0))) { campoFrase.focus(); return; }
+    const daDove = $('salva').getBoundingClientRect();   // le monete partono da qui (dopo, l'anteprima sparisce)
     const adesso = new Date().toISOString();
     const testo = campoFrase.value.trim();
     const nuovi = [], fissi = [];
@@ -922,6 +992,11 @@
     }
     disegna();
     const ids = new Set(nuovi.map(m => m.id));
+    // il suono e il segno di quello che è appena entrato (17/11/2026): la cassa per le entrate, monete per le uscite
+    const tipi = new Set(nuovi.concat(fissi).map(m => m.tipo));
+    suonaMovimento(tipi.has('entrata') ? 'entrata' : tipi.has('uscita') ? 'uscita' : 'spostamento');
+    illumina(ids);
+    if (tipi.has('entrata')) pioggiaDiMonete(daDove);
     // se è finito in un conto diverso da quello che sta guardando, lo si dice: se no sembra sparito
     const altrove = vista.conto ? nuovi.filter(m => !tocca(m, vista.conto)) : [];
     const testoToast = (nuovi.length > 1 ? 'Salvati ' + nuovi.length + ' movimenti'
@@ -1623,6 +1698,64 @@
     return k;
   }
 
+  // ---------------------------------------------------------------- confronto col periodo prima (17/11/2026)
+  // Sotto entrate e uscite: quanto in più o in meno del mese prima (o dell'anno prima). Il mese in corso si confronta
+  // allo stesso giorno («dal 1° al 17 novembre» contro «dal 1° al 17 ottobre»), se no a metà mese sembrerebbe sempre
+  // di spendere meno; i fissi del mese contano da tutte e due le parti, anche quelli dopo il 17, come nel numero sopra
+  // (che li conta dal 1°): senza, il numero e la percentuale si smentivano. Solo se l'app c'era già all'inizio del
+  // periodo di prima (come per la spesa media: primo movimento entro il 7) e, in questa edizione, mai coi mesi di prova.
+  function confronto(conto) {
+    const ora = oggi(), oggiIso = isoOggi(), due = n => String(n).padStart(2, '0');
+    let da1, da0, nome, stessoGiorno;
+    // da… fine: il periodo intero; taglio: fin dove contano i movimenti normali (oggi, o lo stesso giorno di prima)
+    let fine1, fine0, taglio1, taglio0;
+    if (vista.modo === 'anno') {
+      stessoGiorno = vista.anno === ora.getFullYear();
+      da1 = vista.anno + '-01-01'; fine1 = vista.anno + '-12-31';
+      da0 = (vista.anno - 1) + '-01-01'; fine0 = (vista.anno - 1) + '-12-31';
+      taglio1 = stessoGiorno ? oggiIso : fine1; taglio0 = stessoGiorno ? (vista.anno - 1) + oggiIso.slice(4) : fine0;
+      nome = 'il ' + (vista.anno - 1);
+    } else {
+      const k = vista.anno + '-' + due(vista.mese + 1);
+      const p = vista.mese === 0 ? (vista.anno - 1) + '-12' : vista.anno + '-' + due(vista.mese);
+      stessoGiorno = k === chiaveMese(ora);
+      da1 = k + '-01'; fine1 = k + '-31';
+      da0 = p + '-01'; fine0 = p + '-31';
+      taglio1 = stessoGiorno ? oggiIso : fine1; taglio0 = stessoGiorno ? dataNelMese(p, ora.getDate()) : fine0;
+      nome = MESI[vista.mese === 0 ? 11 : vista.mese - 1];
+    }
+    if (da1 > oggiIso || (INIZIO_SUL_SERIO && da0 < INIZIO_SUL_SERIO)) return null;
+    // un passaggio solo sui movimenti (con 1500 movimenti e il processore rallentato si sentiva, 17/11/2026)
+    const ora_ = [], prima_ = [];
+    let primo = '9999';
+    for (const m of stato.movimenti) {
+      if (!m.ricorrente && m.data < primo) primo = m.data;
+      if (m.data >= da1 && m.data <= fine1) { if ((m.data <= taglio1 || m.ricorrente) && tocca(m, conto)) ora_.push(m); }
+      else if (m.data >= da0 && m.data <= fine0 && (m.data <= taglio0 || m.ricorrente) && tocca(m, conto)) prima_.push(m);
+    }
+    if (primo > da0.slice(0, 8) + '07') return null;
+    return { ora: totali(ora_, conto), prima: totali(prima_, conto), nome, stessoGiorno };
+  }
+  function disegnaConfronto(conto) {
+    const c = confronto(conto);
+    for (const [id, chiave, piuEBene] of [['confEntrate', 'entrate', true], ['confUscite', 'uscite', false]]) {
+      const box = $(id);
+      const prima = c ? c.prima[chiave] : 0;
+      box.hidden = !c || !(prima > 0);
+      if (box.hidden) continue;
+      const diff = c.ora[chiave] - prima;
+      box.textContent = '';
+      box.className = 't-confronto';
+      if (!diff) { box.textContent = 'come ' + c.nome; continue; }
+      const bene = (diff > 0) === piuEBene;
+      box.classList.add(bene ? 'bene' : 'male');
+      box.appendChild(el('span', 'freccia', diff > 0 ? '▲' : '▼'));
+      box.appendChild(document.createTextNode(' ' + percento(Math.abs(diff), prima) + (diff > 0 ? ' in più di ' : ' in meno di ') + c.nome));
+      box.title = (c.stessoGiorno ? 'Allo stesso giorno: ' : '') + euro(c.ora[chiave]) + ' contro ' + euro(prima);
+      box.setAttribute('aria-label', box.textContent + '. ' + box.title);
+    }
+  }
+
   function disegna() {
     const ora = oggi();
     $('oggi').textContent = maiuscola(GIORNI[ora.getDay()]) + ' ' + ora.getDate() + ' ' + MESI[ora.getMonth()];
@@ -1650,6 +1783,7 @@
     $('heroSotto').textContent = sotto;
     $('totEntrate').textContent = euro(t.entrate);
     $('totUscite').textContent = euro(t.uscite);
+    disegnaConfronto(conto);
     // gli spostamenti: guardando un conto, da dove sono arrivati e dove sono andati; tutti insieme, che non contano
     const rs = $('riepSpostamenti');
     if (conto && (t.arrivati || t.partiti)) {
@@ -1756,6 +1890,7 @@
       if (!perMese.has(x)) perMese.set(x, []);
       perMese.get(x).push(m);
     }
+    disegnaGrafico(perMese, finoA);
     for (let mm = finoA; mm >= 0; mm--) {
       const lista = perMese.get(mm) || [];
       if (!lista.length) continue;   // i mesi senza movimenti non si mostrano
@@ -1780,6 +1915,41 @@
       tr.appendChild(td);
       tb.appendChild(tr);
     }
+  }
+
+  // Il grafico dell'anno (17/11/2026): le uscite mese per mese, una colonna per mese, un colore solo, il mese in corso
+  // più scuro. Niente numeri sulle colonne (non ci stanno al centesimo): sotto, il mese più caro e la media; tutti gli
+  // altri nella tabella. Toccando un mese si apre.
+  const INIZIALI = ['G', 'F', 'M', 'A', 'M', 'G', 'L', 'A', 'S', 'O', 'N', 'D'];
+  function disegnaGrafico(perMese, finoA) {
+    const box = $('graficoColonne');
+    box.textContent = '';
+    $('graficoTitolo').textContent = 'Uscite' + (vista.conto ? ' ' + inConto(vista.conto) : '');
+    const valori = INIZIALI.map((_, mm) => (perMese.get(mm) || []).reduce((a, m) => a + (m.tipo === 'uscita' && (!vista.conto || contoDi(m) === vista.conto) ? m.importo : 0), 0));
+    const max = Math.max(...valori);
+    $('grafico').hidden = !(max > 0);
+    if (!(max > 0)) return;
+    const qui = vista.anno === oggi().getFullYear() ? oggi().getMonth() : -1;
+    valori.forEach((v, mm) => {
+      const b = el('button', 'colonna' + (mm === qui ? ' corrente' : ''));
+      b.type = 'button';
+      b.disabled = mm > finoA || !(perMese.get(mm) || []).length;
+      b.setAttribute('aria-label', maiuscola(MESI[mm]) + ': uscite ' + euro(v) + (b.disabled ? '' : '. Tocca per aprire il mese.'));
+      const pista = el('span', 'colonna-pista');
+      const barra = el('span', 'colonna-barra');
+      barra.style.height = v ? Math.max(2, v / max * 100) + '%' : '0';
+      pista.appendChild(barra);
+      b.appendChild(pista);
+      b.appendChild(el('span', 'colonna-mese', INIZIALI[mm]));
+      b.addEventListener('click', () => { vista.modo = 'mese'; vista.mese = mm; vista.filtro = null; disegna(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+      box.appendChild(b);
+    });
+    // i mesi con dei movimenti, quello in corso escluso (è a metà): la media è di quelli interi
+    const interi = valori.map((v, mm) => [v, mm]).filter(([, mm]) => mm !== qui && mm <= finoA && (perMese.get(mm) || []).length);
+    const piuCaro = valori.indexOf(max);
+    let nota = 'Il mese più caro: ' + MESI[piuCaro] + ', ' + euro(max) + '.';
+    if (interi.length >= 2) nota += ' Media dei mesi finiti: ' + euro(Math.round(interi.reduce((a, [v]) => a + v, 0) / interi.length)) + '.';
+    $('graficoNota').textContent = nota;
   }
 
   function disegnaLista(lista) {
@@ -1816,15 +1986,19 @@
     }
   }
 
-  function rigaMovimento(m) {
+  // inCerca: fra i risultati della ricerca, col giorno davanti (lì le righe sono divise per mese) e, dopo averlo
+  // modificato, si torna ai risultati
+  function rigaMovimento(m, inCerca) {
     const b = el('button', 'mov');
     b.type = 'button';
+    b.dataset.id = m.id;
     const spost = eSpostamento(m);
     b.appendChild(el('span', 'mov-icona', spost ? '↔' : iconaDi(m.tipo, m.categoria)));
     const testi = el('span', 'mov-testi');
     testi.appendChild(el('span', 'mov-desc', m.descrizione));
     // il conto: per gli spostamenti da… a…; tutti insieme, il simbolo del conto
-    let sotto = spost ? etichettaConto(m) : m.categoria + (vista.conto ? '' : ' · ' + infoConto(contoDi(m)).icona);
+    let sotto = (inCerca ? etichettaGiorno(m.data) + ' · ' : '') +
+      (spost ? etichettaConto(m) : m.categoria + (vista.conto && !inCerca ? '' : ' · ' + infoConto(contoDi(m)).icona));
     const acc = accantonamento(m);
     if (acc) sotto += ' · ' + euro(acc) + ' per le tasse';
     if (m.ricorrente) sotto += ' · fisso';
@@ -1839,12 +2013,13 @@
     }
     b.appendChild(el('span', 'mov-importo ' + classe, segno + euro(Math.abs(m.importo))));
     b.setAttribute('aria-label', m.descrizione + ', ' + sotto + ', ' + etichettaTipo(m.tipo) + ' ' + euro(Math.abs(m.importo)) + '. Tocca per modificare.');
-    b.addEventListener('click', () => modifica(m.id));
+    b.addEventListener('click', () => modifica(m.id, inCerca ? () => apriCerca(true) : null));
     return b;
   }
 
   // ================================================================ modifica di un movimento
-  function modifica(id) {
+  // dopo: dopo aver salvato (dalla ricerca: si torna ai risultati). Dopo Elimina no, se no sparirebbe «Annulla».
+  function modifica(id, dopo) {
     const orig = stato.movimenti.find(m => m.id === id);
     if (!orig) return;
     const bozza = copiaConto({ tipo: orig.tipo, categoria: orig.categoria, data: orig.data, descrizione: orig.descrizione,
@@ -1930,6 +2105,7 @@
         scrivi();
         chiudiFoglio();
         disegna();
+        suonaMovimento('elimina');
         mostraToast('Eliminato', 'Annulla', () => { stato.movimenti.push(tolto); scrivi(); disegna(); });
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
@@ -1938,6 +2114,7 @@
         scrivi();
         chiudiFoglio();
         disegna();
+        if (dopo) { dopo(); return; }
         mostraToast('Modifica salvata');
       }));
       corpo.appendChild(riga);
@@ -2256,11 +2433,14 @@
       voce('🧾 Tasse da accantonare', stato.tasse.attiva ? String(stato.tasse.percentuale).replace('.', ',') + '% di ' + (stato.tasse.categorie.join(', ') || 'nessuna categoria') : 'Spento', apriTasse);
       voce('🏷️ Categorie', 'Aggiungi, rinomina, cambia simbolo, nascondi o elimina.', apriCategorie);
       voce('🎙️ Microfono', descriviVoce(), apriImpostazioniVoce);
+      if (S) voce('🔊 Suoni', (suonoApertura() === 'nessuno' ? 'Apertura in silenzio' : 'Apertura: ' + S.APERTURE.find(a => a.id === suonoApertura()).nome)
+        + (suoniMovimenti() ? ' · cassa e monete quando salvi' : ' · movimenti in silenzio'), apriSuoni).id = 'voceSuoni';
       corpo.appendChild(imp);
 
       corpo.appendChild(el('div', 'titoletto', 'I tuoi movimenti'));
       const n = stato.movimenti.length;
-      corpo.appendChild(el('p', '', n + (n === 1 ? ' movimento' : ' movimenti') + ' salvati su questo telefono. ' + testoUltimoBackup()));
+      corpo.appendChild(el('p', '', n + (n === 1 ? ' movimento' : ' movimenti') + ' salvati su questo telefono. ' + testoUltimoBackup()
+        + ' Memoria usata: ' + percento(spazioUsato(), 1) + '.'));
       const azioni = el('div', 'elenco-azioni');
       azioni.style.marginTop = '10px';
       corpo.appendChild(azioni);
@@ -2273,10 +2453,13 @@
       bImp.appendChild(el('small', '', 'Incolla una «Copia per l\'AI»: i movimenti già presenti non si doppiano.'));
       azioni.appendChild(bImp);
 
-      const bIco = tasto('azione', '📲 Nome e icona nuovi', apriTrasloco);
-      bIco.id = 'voceTrasloco';
-      bIco.appendChild(el('small', '', 'Per avere «' + ED.titolo + '» con l\'icona nuova sulla schermata Home: si porta tutto su un\'icona nuova.'));
-      azioni.appendChild(bIco);
+      // fatto da Francesco l'11/11/2026: nella sua edizione non serve più (resta per quelle degli amici, ancora vecchie)
+      if (ED.nome !== 'principale') {
+        const bIco = tasto('azione', '📲 Nome e icona nuovi', apriTrasloco);
+        bIco.id = 'voceTrasloco';
+        bIco.appendChild(el('small', '', 'Per avere «' + ED.titolo + '» con l\'icona nuova sulla schermata Home: si porta tutto su un\'icona nuova.'));
+        azioni.appendChild(bIco);
+      }
 
       const bZero = tasto('azione', '🧨 Ricomincia da zero', () => ricomincia());
       bZero.style.color = 'var(--critico)';
@@ -2285,7 +2468,7 @@
       azioni.appendChild(bZero);
 
       corpo.appendChild(el('p', 'nota', 'I movimenti esistono solo dentro questa app sul telefono. Se cancelli l\'icona dalla schermata Home o i dati del sito, spariscono: esporta ogni tanto.'));
-      const crediti = tasto('tasto-secondario', 'Crediti delle foto', apriCrediti);
+      const crediti = tasto('tasto-secondario', 'Crediti di foto e suoni', apriCrediti);
       crediti.style.marginTop = '12px';
       corpo.appendChild(crediti);
       const ora = d => String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
@@ -2393,9 +2576,12 @@
     $('bannerTrasloco').hidden = !!(stato.movimenti.length || stato.ricorrenti.length || CONTI_ID.some(c => stato.saldi[c]));
     const n = stato.movimenti.length;
     const vecchio = !stato.ultimoBackup || (Date.now() - new Date(stato.ultimoBackup)) > 14 * GIORNO_MS;
-    const mostra = n >= 10 && vecchio;
+    // la memoria quasi piena viene prima di tutto: va detto a Claude, che sposta i movimenti in una memoria più grande
+    const pieno = spazioUsato() >= 0.6;
+    const mostra = pieno || (n >= 10 && vecchio);
     $('bannerBackup').hidden = !mostra;
-    if (mostra) $('bannerTesto').textContent = 'I movimenti stanno solo su questo telefono. ' + testoUltimoBackup();
+    if (pieno) $('bannerTesto').textContent = 'La memoria dei movimenti è al ' + percento(spazioUsato(), 1) + ': esporta e dillo a Claude, che li sposta in una memoria più grande prima che si riempia.';
+    else if (mostra) $('bannerTesto').textContent = 'I movimenti stanno solo su questo telefono. ' + testoUltimoBackup();
   }
 
   // ================================================================ ricominciare e fine delle prove
@@ -2405,6 +2591,7 @@
     scrivi();
     chiudiFoglio();
     disegna();
+    if (tolti.length) suonaMovimento('elimina');
     mostraToast(messaggio, 'Annulla', () => { stato.movimenti = stato.movimenti.concat(tolti); scrivi(); disegna(); });
   }
 
@@ -2557,20 +2744,40 @@
     }
     corpo.appendChild(fila);
   }
+  let creditiSuoni = null;
   function apriCrediti() {
-    apriFoglio('Crediti delle foto', corpo => {
+    const link = (li, url) => { const a = el('a', '', 'originale'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; li.appendChild(a); };
+    apriFoglio('Crediti di foto e suoni', corpo => {
       corpo.appendChild(el('p', '', 'Foto «in vetrina» di Wikimedia Commons, ritagliate per il telefono. Le licenze libere chiedono di citare chi le ha scattate.'));
       const ul = el('ul', 'passi crediti');
       for (const s of sfondi) {
         const li = el('li');
         li.appendChild(el('b', '', s.nome + ': '));
         li.appendChild(document.createTextNode(s.autore + ' · ' + s.licenza + ' · '));
-        const a = el('a', '', 'originale');
-        a.href = s.fonte; a.target = '_blank'; a.rel = 'noopener';
-        li.appendChild(a);
+        link(li, s.fonte);
         ul.appendChild(li);
       }
       corpo.appendChild(ul);
+      // i suoni (17/11/2026): tutti CC0, citarli non è obbligatorio ma è giusto
+      corpo.appendChild(el('div', 'titoletto', 'Suoni'));
+      corpo.appendChild(el('p', '', 'Registrazioni di Freesound e Kenney con licenza CC0 (di tutti), tagliate e pareggiate di volume.'));
+      const us = el('ul', 'passi crediti');
+      us.id = 'creditiSuoni';
+      corpo.appendChild(us);
+      const scrivi = lista => {
+        const viste = new Set();
+        for (const s of lista) for (const f of s.fonti) {
+          if (viste.has(f.fonte + f.titolo)) continue;
+          viste.add(f.fonte + f.titolo);
+          const li = el('li');
+          li.appendChild(el('b', '', f.titolo + ': '));
+          li.appendChild(document.createTextNode(f.autore + ' · ' + f.licenza + ' · '));
+          link(li, f.fonte);
+          us.appendChild(li);
+        }
+      };
+      if (creditiSuoni) scrivi(creditiSuoni);
+      else fetch('suoni/suoni.json').then(r => r.json()).then(l => { creditiSuoni = l; if (document.body.contains(us)) scrivi(l); }).catch(() => {});
     });
   }
   applicaSfondo();
@@ -2718,10 +2925,8 @@
         ? 'Il microfono è rifatto: adesso c\'è anche il riconoscimento «Preciso», che sbaglia molto meno. Si scarica una volta sola, meglio col Wi-Fi.'
         : 'Per capire la voce, l\'app scarica una volta sola il riconoscimento vocale, meglio col Wi-Fi.'));
       corpo.appendChild(el('p', '', 'Poi funziona anche senza rete, e la tua voce non esce mai dal telefono: la trascrizione la fa il telefono stesso.'));
+      // niente «Usa la tastiera» (tolto il 17/11/2026): la dettatura della tastiera lui non la vuole
       sceltaModelli(corpo, usaModello);
-      const riga = el('div', 'riga-tasti');
-      riga.appendChild(tasto('tasto-secondario', 'Usa la tastiera', () => guidaDettatura('')));
-      corpo.appendChild(riga);
     });
   }
 
@@ -2769,9 +2974,6 @@
         b.style.marginTop = '14px';
         corpo.appendChild(b);
       }
-      const r2 = el('div', 'riga-tasti');
-      r2.appendChild(tasto('tasto-secondario', 'Dettare con la tastiera', () => guidaDettatura('')));
-      corpo.appendChild(r2);
     });
   }
 
@@ -2891,6 +3093,7 @@
   async function microfono() {
     if (statoVoce === 'ascolto') { if (ascoltoInCorso) ascoltoInCorso.ferma(); return; }
     if (statoVoce !== 'fermo') return;
+    if (S) S.ferma();   // l'audio dei suoni in pausa: il microfono tutto al riconoscimento (17/11/2026)
     if (usaApple()) { microfonoApple(); return; }
     if (!V || !V.disponibile) { guidaDettatura('Questo telefono non lascia usare il microfono all\'app.'); return; }
     const chiave = modelloVoce();
@@ -2941,8 +3144,163 @@
   bottoneVoce.addEventListener('click', microfono);
   setTimeout(preparaVoce, 1200);
 
+  // ================================================================ suoni e piccole feste (17/11/2026)
+  // Francesco: «l'idea del suono quando si entra dentro mi piace… non un suono che mi crei tu, ma creato da te
+  // attraverso qualcosa che trovi in giro». Registrazioni vere CC0 (fai_suoni.py), suonate da suoni.js.
+  // L'iPhone non lascia suonare un'app prima che la si tocchi (cercato il 17/11/2026: vale anche per le app della
+  // schermata Home): il suono d'apertura parte al primo tocco entro 12 secondi da quando la apre o ci torna dopo
+  // almeno 3 minuti. Mai sopra il microfono (lo registrerebbe) e mai mentre ascolta.
+  const suonoApertura = () => (S && S.APERTURE.some(a => a.id === pref.suonoApertura) ? pref.suonoApertura : 'apertura-devastante');
+  const suoniMovimenti = () => pref.suoniMovimenti !== false;
+  function suonaMovimento(nome) { if (S && suoniMovimenti() && statoVoce === 'fermo') S.suona(nome); }
+  let togliApertura = null, nascostaDa = 0;
+  function armaApertura() {
+    if (!S) return;
+    if (togliApertura) togliApertura();
+    togliApertura = S.alPrimoTocco(e => {
+      togliApertura = null;
+      const t = e && e.target && e.target.closest ? e.target : null;
+      if (statoVoce !== 'fermo' || (t && t.closest('#microfono'))) return;
+      S.sblocca();
+      if (suonoApertura() === 'nessuno') return;
+      S.suona(suonoApertura());
+      brillaTitolo();
+    }, 12000);
+  }
+  // «Devastanti» si accende: all'apertura, e di nuovo col suono
+  function brillaTitolo() {
+    const t = document.querySelector('.titolo-giu');
+    if (!t) return;
+    t.classList.remove('brilla');
+    void t.offsetWidth;   // per farla ripartire
+    t.classList.add('brilla');
+  }
+  const pocoMovimento = () => window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // le righe appena salvate si accendono un attimo, così si vede dove sono finite
+  function illumina(ids) {
+    if (!ids.size) return;
+    document.querySelectorAll('#lista .mov').forEach(r => { if (ids.has(r.dataset.id)) r.classList.add('appena'); });
+  }
+  // un'entrata: una manciata di monete che salta su dal tasto Salva
+  function pioggiaDiMonete(r) {
+    if (pocoMovimento() || !r || !r.width || !document.body.animate) return;
+    const x0 = r.left + r.width / 2, y0 = r.top + r.height / 2;
+    for (let i = 0; i < 9; i++) {
+      const m = el('span', 'moneta', '🪙');
+      m.style.left = x0 + 'px'; m.style.top = y0 + 'px';
+      document.body.appendChild(m);
+      const dx = (Math.random() - 0.5) * 220, su = 90 + Math.random() * 120, giro = (Math.random() - 0.5) * 540;
+      m.animate([
+        { transform: 'translate(-50%, -50%) scale(0.6) rotate(0deg)', opacity: 1 },
+        { transform: `translate(calc(-50% + ${dx * 0.6}px), calc(-50% - ${su}px)) scale(1.1) rotate(${giro / 2}deg)`, opacity: 1, offset: 0.45 },
+        { transform: `translate(calc(-50% + ${dx}px), calc(-50% - ${su * 0.35}px)) scale(0.9) rotate(${giro}deg)`, opacity: 0 }
+      ], { duration: 900 + Math.random() * 300, easing: 'cubic-bezier(.2,.7,.3,1)', delay: i * 25 }).onfinish = () => m.remove();
+    }
+  }
+
+  function apriSuoni() {
+    apriFoglio('Suoni', corpo => {
+      corpo.appendChild(el('p', '', 'Registrazioni vere, non suoni finti: una cassa, monete, un colpo. Con l\'iPhone in silenzioso non suonano, e non fermano la musica.'));
+      corpo.appendChild(el('div', 'titoletto', 'Quando apri l\'app'));
+      const g = el('div', 'elenco-azioni');
+      for (const a of S.APERTURE) {
+        const b = tasto('azione scelta-suono', (a.id === suonoApertura() ? '✓ ' : '') + a.nome, () => {
+          pref.suonoApertura = a.id;
+          scriviPref();
+          S.sblocca();
+          if (a.id !== 'nessuno') { S.suona(a.id); brillaTitolo(); }
+          apriSuoni();
+        });
+        b.dataset.suono = a.id;
+        b.setAttribute('aria-pressed', String(a.id === suonoApertura()));
+        b.appendChild(el('small', '', a.sotto + (a.id !== 'nessuno' ? ' · tocca per sentirlo' : '')));
+        g.appendChild(b);
+      }
+      corpo.appendChild(g);
+      corpo.appendChild(el('p', 'nota-campo', 'L\'iPhone non lascia suonare un\'app prima che la tocchi: il suono parte al primo tocco, appena aperta. Se il primo tocco è il microfono, niente suono.'));
+      corpo.appendChild(el('div', 'titoletto', 'Quando salvi o cancelli'));
+      const on = interruttore('Suoni dei movimenti', suoniMovimenti());
+      on.casella.id = 'suoniMovimenti';
+      on.casella.addEventListener('change', () => { pref.suoniMovimenti = on.casella.checked; scriviPref(); });
+      corpo.appendChild(on.etichetta);
+      const prove = el('div', 'chips');
+      prove.style.marginTop = '10px';
+      for (const [nome, cosa] of [['entrata', '💰 Entrata'], ['uscita', '🪙 Uscita'], ['spostamento', '↔ Spostamento'], ['elimina', '🗑️ Elimina']]) {
+        prove.appendChild(tasto('chip senza-freccia', '▶ ' + cosa, () => { S.sblocca(); S.suona(nome); }));
+      }
+      corpo.appendChild(prove);
+      const cred = tasto('tasto-secondario', 'Da dove vengono', apriCrediti);
+      cred.style.marginTop = '16px';
+      corpo.appendChild(cred);
+    });
+  }
+
+  // ================================================================ cerca (17/11/2026)
+  // In tutti i mesi e in tutti i conti: parole della descrizione, categoria, conto o importo («12,50», «12»).
+  // Ogni parola scritta deve esserci. Si tocca un risultato per modificarlo.
+  function testoCercabile(m) {
+    const imp = (m.importo / 100).toFixed(2);
+    return A.normalizza([m.descrizione, m.categoria, eSpostamento(m) ? etichettaConto(m) : nomeConto(contoDi(m)),
+      etichettaTipo(m.tipo), imp, imp.replace('.', ','), euro(m.importo), m.data.slice(8, 10) + '/' + m.data.slice(5, 7)].join(' '));
+  }
+  function cerca(q) {
+    const parole = A.normalizza(q).split(/\s+/).filter(Boolean);
+    if (!parole.length) return [];
+    return stato.movimenti.filter(m => { const t = testoCercabile(m); return parole.every(p => t.includes(p)); })
+      .sort((a, b) => b.data.localeCompare(a.data) || (b.creato || '').localeCompare(a.creato || ''));
+  }
+  let ultimaRicerca = '';
+  function apriCerca(tornando) {
+    if (tornando !== true) tornando = false;
+    apriFoglio('Cerca', corpo => {
+      const inp = el('input');
+      inp.type = 'search';
+      inp.id = 'testoCerca';
+      inp.autocomplete = 'off';
+      inp.setAttribute('enterkeyhint', 'search');
+      inp.placeholder = 'pizza, Esselunga, Svago, 12,50…';
+      inp.value = ultimaRicerca;
+      const c = el('label', 'campo cerca-campo');
+      c.appendChild(inp);
+      corpo.appendChild(c);
+      const riassunto = el('p', 'riassunto');
+      riassunto.id = 'cercaRiassunto';
+      corpo.appendChild(riassunto);
+      const ris = el('div', 'risultati');
+      ris.id = 'risultatiCerca';
+      corpo.appendChild(ris);
+      const aggiorna = () => {
+        ultimaRicerca = inp.value;
+        ris.textContent = '';
+        const trovati = cerca(inp.value);
+        if (!inp.value.trim()) { riassunto.textContent = ''; ris.appendChild(el('p', 'vuoto', 'Scrivi una parola, una categoria, un conto o un importo: cerco in tutti i mesi.')); return; }
+        if (!trovati.length) { riassunto.textContent = ''; ris.appendChild(el('p', 'vuoto', 'Nessun movimento con «' + inp.value.trim() + '».')); return; }
+        const t = totali(trovati);
+        riassunto.textContent = trovati.length + (trovati.length === 1 ? ' movimento' : ' movimenti') +
+          (t.uscite ? ' · uscite ' + euro(t.uscite) : '') + (t.entrate ? ' · entrate ' + euro(t.entrate) : '') + (t.spostati ? ' · spostati ' + euro(t.spostati) : '');
+        let mese = null;
+        for (const m of trovati.slice(0, 300)) {
+          const k = m.data.slice(0, 7);
+          if (k !== mese) {
+            mese = k;
+            ris.appendChild(el('div', 'giorno-titolo', maiuscola(MESI[Number(k.slice(5)) - 1]) + ' ' + k.slice(0, 4)));
+          }
+          ris.appendChild(rigaMovimento(m, true));
+        }
+        if (trovati.length > 300) ris.appendChild(el('p', 'nota', 'Ne mostro 300: aggiungi una parola per restringere.'));
+      };
+      inp.addEventListener('input', aggiorna);
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
+      aggiorna();
+    });
+    // dentro il tocco sulla lente, a foglio già visibile: sull'iPhone così si apre la tastiera. Tornando da una
+    // modifica no: i risultati si vedono meglio senza
+    if (!tornando) { const i = $('testoCerca'); i.focus(); i.select(); }
+  }
+
   // ================================================================ eventi generali
   $('apriMenu').addEventListener('click', apriMenu);
+  $('apriCerca').addEventListener('click', () => apriCerca());
   $('incollaTrasloco').addEventListener('click', incollaDallaVecchia);
   $('bannerEsporta').addEventListener('click', () => apriEsporta('tutto'));
   $('modSaldo').addEventListener('click', () => apriSaldo(vista.conto || undefined));
@@ -2975,11 +3333,13 @@
   window.addEventListener('storage', e => { if (e.key === CHIAVE) { stato = carica(); disegna(); } });
   // tornando in primo piano: può essere un altro giorno (fissi da segnare, «oggi» diverso, sfondo nuovo)
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) return;
+    if (document.hidden) { nascostaDa = Date.now(); return; }
     generaRicorrenti();
     rileggi();
     disegna();
     applicaSfondo();
+    // tornarci dopo almeno 3 minuti è come riaprirla: di nuovo il suono d'apertura al primo tocco
+    if (nascostaDa && Date.now() - nascostaDa >= 180000) { armaApertura(); brillaTitolo(); }
   });
 
   // Dopo la traduzione dei dati vecchi (10/11/2026): i movimenti finiti in «Altro» si rileggono con le
@@ -3009,6 +3369,10 @@
   generaRicorrenti();
   rileggi();
   disegna();
+  armaApertura();
+  brillaTitolo();
+  // i suoni si scaricano e si decodificano quando l'app è ferma (dal service worker, anche senza rete)
+  if (S) (window.requestIdleCallback ? f => requestIdleCallback(f, { timeout: 3000 }) : f => setTimeout(f, 800))(() => S.prepara());
 
   // ================================================================ funzionamento senza rete
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
@@ -3037,6 +3401,6 @@
     generaRicorrenti, saldoAttuale, liquidi, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
     vista: () => vista, scegliVistaConto, saldoVisibile: () => saldoVisibile,
-    controllaVersione, novita: NOVITA
+    controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriSuoni, spazioUsato
   };
 })();

@@ -453,3 +453,72 @@ button.aut-riga:active { background: var(--superficie-2); }
 
 /* l avviso delle prove di novembre: la frase sopra, i tasti sotto (col testo lungo si stringeva in una colonna) */
 #bannerProva p { flex-basis: 100%; }
+
+/* ---------------------------------------------------------------- 17/11/2026: lente, le solite, confronto, grafico, feste */
+.testata-tasti { display: flex; gap: 8px; flex-shrink: 0; }
+/* i tasti sulla foto restano bianchi: .tasto-icona, scritta dopo, li faceva grigio scuro (quasi invisibili in tema chiaro) */
+.tasto-icona.tasto-vetro { color: #fff; }
+
+/* le solite spese: un tocco e sono scritte */
+.scorciatoie { margin-top: 10px; }
+.scorciatoie-titolo { display: block; font-size: 12px; font-weight: 600; color: var(--testo-tenue); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 6px; }
+.scorciatoie-lista { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip.solita { min-height: 36px; max-width: 100%; padding: 4px 12px 4px 8px; gap: 6px; font-size: 14px; background: var(--tessera); }
+.solita-icona { font-size: 16px; }
+.solita-desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.solita-importo { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--testo-2); }
+.solita-importo.entrata { color: var(--positivo); }
+body.voce-attiva .scorciatoie { display: none; }
+
+/* sotto entrate e uscite: rispetto al mese prima */
+.t-confronto { font-size: 12px; color: var(--testo-2); margin-top: 3px; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.t-confronto .freccia { font-size: 10px; }
+.t-confronto.bene .freccia { color: var(--positivo); }
+.t-confronto.male .freccia { color: var(--critico); }
+
+/* il grafico dell'anno: una colonna per mese, un colore solo, il mese in corso più scuro */
+.grafico { margin: 2px 0 14px; }
+.grafico-titolo { font-size: 13px; color: var(--testo-2); margin-bottom: 6px; }
+.grafico-colonne { display: grid; grid-template-columns: repeat(12, 1fr); gap: 2px; height: 128px; align-items: stretch; }
+.colonna {
+  border: 0; background: transparent; padding: 0; min-width: 0; display: flex; flex-direction: column; align-items: stretch;
+  border-radius: 6px; color: var(--testo-tenue);
+}
+.colonna:active:not(:disabled) { background: var(--superficie-2); }
+.colonna:disabled { cursor: default; opacity: 1; }
+.colonna-pista { flex: 1; display: flex; align-items: flex-end; justify-content: center; border-bottom: 1px solid var(--filo); }
+.colonna-barra { display: block; width: 62%; max-width: 18px; background: var(--barra); border-radius: 4px 4px 0 0; opacity: 0.75; }
+.colonna.corrente .colonna-barra { opacity: 1; }
+.colonna-mese { font-size: 12px; text-align: center; padding-top: 4px; line-height: 1.2; }
+.colonna.corrente .colonna-mese { color: var(--testo); font-weight: 700; }
+.grafico-nota { font-size: 13px; color: var(--testo-2); margin-top: 8px; font-variant-numeric: tabular-nums; }
+@media (forced-colors: active) { .colonna-barra { background: CanvasText; } }
+
+/* «Devastanti» si accende all'apertura e col suono */
+.titolo-giu { transform-origin: 0 60%; }
+.titolo-giu.brilla { animation: brilla 1.3s cubic-bezier(.2, .7, .2, 1) 1; }
+@keyframes brilla {
+  0% { transform: scale(1); filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 14px rgba(255, 90, 60, 0.35)) brightness(1); }
+  18% { transform: scale(1.07) rotate(-1.5deg); filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 26px rgba(255, 150, 40, 0.95)) brightness(1.45); }
+  42% { transform: scale(0.99) rotate(0.3deg); }
+  100% { transform: scale(1); filter: drop-shadow(0 2px 10px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 14px rgba(255, 90, 60, 0.35)) brightness(1); }
+}
+
+/* un'entrata: monete che saltano dal tasto Salva */
+.moneta { position: fixed; z-index: 40; font-size: 24px; line-height: 1; pointer-events: none; will-change: transform, opacity; }
+/* la riga appena salvata si accende un attimo */
+.mov.appena { animation: appena 1.6s ease-out 1; }
+@keyframes appena { 0%, 30% { background: color-mix(in srgb, var(--accento) 22%, transparent); } 100% { background: transparent; } }
+
+/* suoni: la scelta segnata */
+.scelta-suono[aria-pressed="true"] { border-color: var(--accento); box-shadow: inset 0 0 0 1px var(--accento); }
+
+/* cerca */
+.cerca-campo { margin-top: 0; }
+.cerca-campo input { -webkit-appearance: none; appearance: none; }
+.risultati { margin-top: 6px; }
+.risultati .giorno-titolo:first-child { margin-top: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .titolo-giu.brilla, .mov.appena { animation: none; }
+}

@@ -1,0 +1,99 @@
+[
+ {
+  "id": "apertura-devastante",
+  "nome": "Devastante",
+  "secondi": 1.61,
+  "fonti": [
+   {
+    "titolo": "Cinematic Impact",
+    "autore": "deleted_user_3277771",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/177242/"
+   },
+   {
+    "titolo": "Coin Spill",
+    "autore": "clairinski",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/184372/"
+   }
+  ]
+ },
+ {
+  "id": "apertura-cassa",
+  "nome": "Cassa",
+  "secondi": 1.35,
+  "fonti": [
+   {
+    "titolo": "Cash Register Purchase",
+    "autore": "Zott820",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/209578/"
+   }
+  ]
+ },
+ {
+  "id": "apertura-tesoro",
+  "nome": "Tesoro",
+  "secondi": 2.2,
+  "fonti": [
+   {
+    "titolo": "Treasure Chest Reveal",
+    "autore": "Qvantor",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/878615/"
+   }
+  ]
+ },
+ {
+  "id": "entrata",
+  "nome": null,
+  "secondi": 1.05,
+  "fonti": [
+   {
+    "titolo": "Cash Register Purchase",
+    "autore": "Zott820",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/209578/"
+   }
+  ]
+ },
+ {
+  "id": "uscita",
+  "nome": null,
+  "secondi": 0.8,
+  "fonti": [
+   {
+    "titolo": "handleCoins.ogg (rpg-audio)",
+    "autore": "Kenney",
+    "licenza": "CC0 1.0",
+    "fonte": "https://kenney.nl/assets/rpg-audio"
+   }
+  ]
+ },
+ {
+  "id": "spostamento",
+  "nome": null,
+  "secondi": 0.43,
+  "fonti": [
+   {
+    "titolo": "Whoosh",
+    "autore": "qubodup",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/60013/"
+   }
+  ]
+ },
+ {
+  "id": "elimina",
+  "nome": null,
+  "secondi": 0.62,
+  "fonti": [
+   {
+    "titolo": "crumple.wav",
+    "autore": "j1987",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/106127/"
+   }
+  ]
+ }
+]
