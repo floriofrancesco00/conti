@@ -1,6 +1,6 @@
 [
  {
-  "id": "apertura-devastante",
+  "id": "saldo-devastante",
   "nome": "Devastante",
   "secondi": 1.61,
   "fonti": [
@@ -19,7 +19,7 @@
   ]
  },
  {
-  "id": "apertura-cassa",
+  "id": "saldo-cassa",
   "nome": "Cassa",
   "secondi": 1.35,
   "fonti": [
@@ -32,7 +32,7 @@
   ]
  },
  {
-  "id": "apertura-tesoro",
+  "id": "saldo-tesoro",
   "nome": "Tesoro",
   "secondi": 2.2,
   "fonti": [
@@ -41,6 +41,64 @@
     "autore": "Qvantor",
     "licenza": "CC0 1.0",
     "fonte": "https://freesound.org/s/878615/"
+   }
+  ]
+ },
+ {
+  "id": "sigla-oro",
+  "nome": "Fanfara d'oro",
+  "secondi": 3.35,
+  "fonti": [
+   {
+    "titolo": "Success Fanfare Trumpets.mp3",
+    "autore": "FunWithSound",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/456966/"
+   },
+   {
+    "titolo": "Coin Spill",
+    "autore": "clairinski",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/184372/"
+   }
+  ]
+ },
+ {
+  "id": "sigla-fanfara",
+  "nome": "Fanfara",
+  "secondi": 3.0,
+  "fonti": [
+   {
+    "titolo": "Success Fanfare Trumpets.mp3",
+    "autore": "FunWithSound",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/456966/"
+   }
+  ]
+ },
+ {
+  "id": "sigla-corno",
+  "nome": "Corno di guerra",
+  "secondi": 2.6,
+  "fonti": [
+   {
+    "titolo": "War Horn Blast",
+    "autore": "jocmusic",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/482686/"
+   }
+  ]
+ },
+ {
+  "id": "sigla-tada",
+  "nome": "Ta-da",
+  "secondi": 1.45,
+  "fonti": [
+   {
+    "titolo": "Tada Fanfare A",
+    "autore": "plasterbrain",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/397355/"
    }
   ]
  },

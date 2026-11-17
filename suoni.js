@@ -1,21 +1,29 @@
-/* Che Conti Devastanti — i suoni (17/11/2026).
+/* Che Conti Devastanti — i suoni (dal 17/11/2026).
    Registrazioni vere con licenza CC0 (Freesound e Kenney), tagliate e pareggiate da fai_suoni.py: niente sintesi.
    Suonano con Web Audio, che sull'iPhone si mescola con la musica (non ferma Spotify) e tace col silenzioso.
-   L'iPhone non lascia suonare una pagina prima che la si tocchi: il suono d'apertura parte al primo tocco
-   (Suoni.alPrimoTocco), tutti gli altri nascono già da un tocco (Salva, Elimina).
-   window.__CONTI_MUTO (banco di prova): non apre l'audio del computer, segna soltanto cosa avrebbe suonato. */
+   18/11/2026: la sigla all'apertura (Suoni.provaSubito, poi il primo tocco se l'iPhone non lascia suonare prima),
+   il suono del saldo a ogni tocco dell'occhio, quelli dei movimenti da Salva ed Elimina.
+   window.__CONTI_MUTO (banco di prova): non apre l'audio del computer, segna soltanto cosa avrebbe suonato;
+   window.__CONTI_SUBITO finge un telefono che lascia suonare prima del tocco. */
 (function () {
   'use strict';
-  const NOMI = ['apertura-devastante', 'apertura-cassa', 'apertura-tesoro', 'entrata', 'uscita', 'spostamento', 'elimina'];
-  const APERTURE = [
-    { id: 'apertura-devastante', nome: 'Devastante', sotto: 'Un colpo, poi una manciata di monete che cade' },
-    { id: 'apertura-cassa', nome: 'Cassa', sotto: 'Il «ka-ching» di un registratore di cassa' },
-    { id: 'apertura-tesoro', nome: 'Tesoro', sotto: 'Un forziere che si apre' },
-    { id: 'nessuno', nome: 'Nessuno', sotto: 'L\'app si apre in silenzio' }
+  const SIGLE = [
+    { id: 'sigla-oro', nome: 'Fanfara d\'oro', sotto: 'Trombe, poi le monete del «Devastante»' },
+    { id: 'sigla-fanfara', nome: 'Fanfara', sotto: 'Solo le trombe' },
+    { id: 'sigla-corno', nome: 'Corno di guerra', sotto: 'Un corno, come prima di una battaglia' },
+    { id: 'sigla-tada', nome: 'Ta-da', sotto: 'Corta e allegra' },
+    { id: 'nessuno', nome: 'Nessuna', sotto: 'L\'app si apre in silenzio' }
   ];
+  const SALDO = [
+    { id: 'saldo-devastante', nome: 'Devastante', sotto: 'Un colpo, poi una manciata di monete che cade' },
+    { id: 'saldo-cassa', nome: 'Cassa', sotto: 'Il «ka-ching» di un registratore di cassa' },
+    { id: 'saldo-tesoro', nome: 'Tesoro', sotto: 'Un forziere che si apre' },
+    { id: 'nessuno', nome: 'Nessuno', sotto: 'Il saldo si mostra in silenzio' }
+  ];
+  const NOMI = SIGLE.concat(SALDO).map(s => s.id).filter(n => n !== 'nessuno').concat(['entrata', 'uscita', 'spostamento', 'elimina']);
   const suonati = [];   // per le prove: cosa ha suonato (o avrebbe suonato), in ordine
   const muto = () => !!window.__CONTI_MUTO;
-  let ctx = null, caricamento = null;
+  let ctx = null, caricamento = null, sigillo = 0;   // sigillo: fino a quando (secondi del contesto) suona la sigla
   const buffer = {};
 
   function contesto() {
@@ -25,7 +33,7 @@
     try { ctx = new AC({ latencyHint: 'interactive' }); } catch (e) { ctx = null; }
     return ctx;
   }
-  // i file si scaricano e si decodificano una volta sola, quando l'app è ferma (il service worker li tiene senza rete)
+  // i file si scaricano e si decodificano una volta sola (il service worker li tiene anche senza rete)
   function prepara() {
     if (caricamento) return caricamento;
     if (muto()) return (caricamento = Promise.resolve(0));
@@ -50,8 +58,10 @@
       s.start(0);
     } catch (e) { /* niente */ }
   }
-  function suona(nome, volume) {
+  // opz.inCoda: se sta suonando la sigla, parte appena finisce (il primo tocco sull'occhio: sigla, poi saldo)
+  function suona(nome, opz) {
     if (!nome || nome === 'nessuno') return false;
+    opz = opz || {};
     suonati.push(nome);
     if (muto()) return true;
     const c = contesto();
@@ -62,9 +72,11 @@
       if (!b) return false;
       const s = c.createBufferSource(), g = c.createGain();
       s.buffer = b;
-      g.gain.value = volume === undefined ? 1 : volume;
+      g.gain.value = opz.volume === undefined ? 1 : opz.volume;
       s.connect(g); g.connect(c.destination);
-      s.start(0);
+      const quando = opz.inCoda && sigillo > c.currentTime ? sigillo - 0.15 : 0;
+      s.start(quando);
+      if (nome.startsWith('sigla-')) sigillo = c.currentTime + b.duration;
       return true;
     };
     if (buffer[nome]) return via();
@@ -72,6 +84,25 @@
     const t0 = performance.now();
     prepara().then(() => { if (performance.now() - t0 < 1500) via(); });
     return true;
+  }
+  // La sigla appena aperta, se il telefono lo lascia fare senza un tocco: si prova ad aprire l'audio e si guarda se
+  // parte davvero. Vero se ha suonato; falso se l'iPhone lo blocca (allora la sigla aspetta il primo tocco).
+  function provaSubito(nome) {
+    if (!nome || nome === 'nessuno') return Promise.resolve(false);
+    if (muto()) {
+      if (!window.__CONTI_SUBITO) return Promise.resolve(false);
+      suonati.push(nome);
+      return Promise.resolve(true);
+    }
+    const c = contesto();
+    if (!c) return Promise.resolve(false);
+    return Promise.race([
+      (c.state === 'running' ? Promise.resolve() : c.resume()).then(() => c.state === 'running', () => false),
+      new Promise(ok => setTimeout(() => ok(false), 600))
+    ]).then(va => {
+      if (!va || c.state !== 'running') return false;
+      return prepara().then(() => (buffer[nome] ? suona(nome) : false));
+    });
   }
   // prima del microfono: l'audio dei suoni si mette in pausa, così non contende il microfono al riconoscimento della
   // voce (il prossimo suono lo riapre da solo, sempre dentro un tocco)
@@ -94,6 +125,7 @@
       alTocco(e);
     };
     const togli = () => {
+      fatto = true;
       document.removeEventListener('pointerdown', giu, true);
       document.removeEventListener('pointerup', su, true);
       document.removeEventListener('touchend', su, true);
@@ -106,6 +138,6 @@
     return togli;
   }
 
-  window.Suoni = { NOMI, APERTURE, prepara, sblocca, suona, ferma, alPrimoTocco, suonati: () => suonati.slice(),
+  window.Suoni = { NOMI, SIGLE, SALDO, prepara, sblocca, suona, provaSubito, ferma, alPrimoTocco, suonati: () => suonati.slice(),
     stato: () => (ctx ? ctx.state : muto() ? 'muto' : 'chiuso'), pronti: () => Object.keys(buffer).length };
 })();

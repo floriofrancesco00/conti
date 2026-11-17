@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.17-1700';
+  const VERSIONE = '2026.11.17-2227';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -288,7 +288,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'suoni veri all’apertura (Menù → Suoni), «Le solite» a un tocco, 🔍 Cerca, confronto col mese prima e grafico dell’anno';
+  const NOVITA = 'sigla quando apri (Menù → Suoni), suono del saldo a ogni tocco dell’occhio, ultimi 10 movimenti e «Tutti i movimenti» dal… al…, ricerca rifatta';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -1823,8 +1823,11 @@
     }
     $('occhioSaldi').hidden = $('modSaldo').hidden;   // senza saldi inseriti non c'è niente da nascondere
   }
+  // mostrando il saldo, il suo suono (18/11/2026: «dovrebbe potersi sentire ogni volta che ci schiacci»)
   function cambiaOcchio(v) {
+    const prima = saldoVisibile;
     saldoVisibile = v === undefined ? !saldoVisibile : !!v;
+    if (saldoVisibile && !prima) suonaSaldo();
     disegna();
   }
 
@@ -1952,19 +1955,28 @@
     $('graficoNota').textContent = nota;
   }
 
+  // Gli ultimi movimenti (18/11/2026, Francesco: «con il tempo diventerà sempre più grande… basta una piccola tabella
+  // con gli ultimi 10 movimenti, come sulle app bancarie, e poi tutti i movimenti dal… al…»). Qui i 10 più recenti del
+  // periodo che guarda (sopra, quelli in arrivo del mese), e sotto il tasto per la vista completa (apriMovimenti).
+  const ULTIMI = 10;
   function disegnaLista(lista) {
     const cont = $('lista');
     cont.textContent = '';
     const filtro = $('filtro');
-    $('titoloMovimenti').textContent = vista.conto ? 'Movimenti ' + inConto(vista.conto) : 'Movimenti';
+    $('titoloMovimenti').textContent = 'Ultimi movimenti' + (vista.conto ? ' ' + inConto(vista.conto) : '');
     filtro.hidden = !vista.filtro;
     if (vista.filtro) filtro.textContent = 'Solo ' + vista.filtro;
-    // nell'anno la lista completa è lunga: si vede solo filtrando una categoria
-    $('sezMovimenti').hidden = vista.modo === 'anno' && !vista.filtro;
-    if ($('sezMovimenti').hidden) return;   // 1500 righe costruite per niente: mezzo secondo sul telefono (11/11/2026)
     let righe = vista.filtro ? lista.filter(m => m.tipo === 'uscita' && m.categoria === vista.filtro) : lista;
-    righe = righe.slice().sort((a, b) => (b.data.localeCompare(a.data)) || (b.creato || '').localeCompare(a.creato || ''));
-    if (!righe.length) {
+    righe = righe.slice().sort(piuRecenti);
+    const oggiIso = isoOggi();
+    const inArrivo = righe.filter(m => m.data > oggiIso), fatti = righe.filter(m => m.data <= oggiIso);
+    const mostrati = inArrivo.concat(fatti.slice(0, ULTIMI));
+    const bt = $('tuttiMovimenti');
+    bt.hidden = !stato.movimenti.length;
+    bt.querySelector('small').textContent = fatti.length > ULTIMI
+      ? 'Qui gli ultimi ' + ULTIMI + ' di ' + fatti.length + '. Tutti, anche degli anni passati, e quanto hai speso dal… al…'
+      : 'Tutti, anche degli anni passati, e quanto hai speso dal… al…';
+    if (!mostrati.length) {
       cont.appendChild(el('p', 'vuoto', stato.movimenti.length ? 'Nessun movimento' + (vista.conto ? ' ' + inConto(vista.conto) : '') + ' in questo periodo.'
         : 'Ancora nessun movimento. Scrivi o detta la prima spesa qui sopra, per esempio «caffè 1,20».'));
       if (!stato.movimenti.length) {   // un'icona nuova: i dati della vecchia arrivano dagli appunti
@@ -1976,19 +1988,20 @@
       return;
     }
     let giorno = null;
-    for (const m of righe) {
+    for (const m of mostrati) {
       if (m.data !== giorno) {
         giorno = m.data;
-        const futuro = m.data > isoOggi();
+        const futuro = m.data > oggiIso;
         cont.appendChild(el('div', 'giorno-titolo' + (futuro ? ' in-arrivo' : ''), (futuro ? 'In arrivo · ' : '') + etichettaGiorno(m.data)));
       }
       cont.appendChild(rigaMovimento(m));
     }
   }
+  const piuRecenti = (a, b) => b.data.localeCompare(a.data) || (b.creato || '').localeCompare(a.creato || '');
 
-  // inCerca: fra i risultati della ricerca, col giorno davanti (lì le righe sono divise per mese) e, dopo averlo
-  // modificato, si torna ai risultati
-  function rigaMovimento(m, inCerca) {
+  // ritorno (facoltativo): nella vista «Tutti i movimenti», dopo averlo modificato si torna lì. conto: quello che
+  // si guarda (lì può essere diverso da quello della pagina); senza conto, il simbolo del conto su ogni riga
+  function rigaMovimento(m, ritorno, conto) {
     const b = el('button', 'mov');
     b.type = 'button';
     b.dataset.id = m.id;
@@ -1997,8 +2010,8 @@
     const testi = el('span', 'mov-testi');
     testi.appendChild(el('span', 'mov-desc', m.descrizione));
     // il conto: per gli spostamenti da… a…; tutti insieme, il simbolo del conto
-    let sotto = (inCerca ? etichettaGiorno(m.data) + ' · ' : '') +
-      (spost ? etichettaConto(m) : m.categoria + (vista.conto && !inCerca ? '' : ' · ' + infoConto(contoDi(m)).icona));
+    if (conto === undefined) conto = vista.conto;
+    let sotto = spost ? etichettaConto(m) : m.categoria + (conto ? '' : ' · ' + infoConto(contoDi(m)).icona);
     const acc = accantonamento(m);
     if (acc) sotto += ' · ' + euro(acc) + ' per le tasse';
     if (m.ricorrente) sotto += ' · fisso';
@@ -2008,12 +2021,12 @@
     // uno spostamento, guardando un conto: più se arriva qui, meno se parte da qui; tutti insieme, senza segno
     let segno = segnoDi(m.tipo), classe = m.tipo;
     if (spost) {
-      segno = vista.conto ? (m.verso === vista.conto ? '+' : '−') : '';
-      classe = 'spostamento' + (vista.conto && m.verso === vista.conto ? ' entrata' : '');
+      segno = conto ? (m.verso === conto ? '+' : '−') : '';
+      classe = 'spostamento' + (conto && m.verso === conto ? ' entrata' : '');
     }
     b.appendChild(el('span', 'mov-importo ' + classe, segno + euro(Math.abs(m.importo))));
     b.setAttribute('aria-label', m.descrizione + ', ' + sotto + ', ' + etichettaTipo(m.tipo) + ' ' + euro(Math.abs(m.importo)) + '. Tocca per modificare.');
-    b.addEventListener('click', () => modifica(m.id, inCerca ? () => apriCerca(true) : null));
+    b.addEventListener('click', () => { if (ritorno) ritorno.prima(); modifica(m.id, ritorno ? ritorno.dopo : null); });
     return b;
   }
 
@@ -2433,8 +2446,11 @@
       voce('🧾 Tasse da accantonare', stato.tasse.attiva ? String(stato.tasse.percentuale).replace('.', ',') + '% di ' + (stato.tasse.categorie.join(', ') || 'nessuna categoria') : 'Spento', apriTasse);
       voce('🏷️ Categorie', 'Aggiungi, rinomina, cambia simbolo, nascondi o elimina.', apriCategorie);
       voce('🎙️ Microfono', descriviVoce(), apriImpostazioniVoce);
-      if (S) voce('🔊 Suoni', (suonoApertura() === 'nessuno' ? 'Apertura in silenzio' : 'Apertura: ' + S.APERTURE.find(a => a.id === suonoApertura()).nome)
-        + (suoniMovimenti() ? ' · cassa e monete quando salvi' : ' · movimenti in silenzio'), apriSuoni).id = 'voceSuoni';
+      if (S) {
+        const nomeDi = (lista, id) => lista.find(a => a.id === id).nome;
+        voce('🔊 Suoni', 'Sigla: ' + nomeDi(S.SIGLE, suonoSigla()) + ' · saldo: ' + nomeDi(S.SALDO, suonoSaldo())
+          + (suoniMovimenti() ? ' · cassa e monete quando salvi' : ' · movimenti in silenzio'), apriSuoni).id = 'voceSuoni';
+      }
       corpo.appendChild(imp);
 
       corpo.appendChild(el('div', 'titoletto', 'I tuoi movimenti'));
@@ -2580,7 +2596,8 @@
     const pieno = spazioUsato() >= 0.6;
     const mostra = pieno || (n >= 10 && vecchio);
     $('bannerBackup').hidden = !mostra;
-    if (pieno) $('bannerTesto').textContent = 'La memoria dei movimenti è al ' + percento(spazioUsato(), 1) + ': esporta e dillo a Claude, che li sposta in una memoria più grande prima che si riempia.';
+    if (pieno) $('bannerTesto').textContent = 'La memoria dei movimenti è al ' + percento(spazioUsato(), 1) + ': esporta e ' +
+      (ED.nome === 'principale' ? 'dillo a Claude, che li sposta' : 'chiedi a chi ti ha dato l\'app di spostarli') + ' in una memoria più grande prima che si riempia.';
     else if (mostra) $('bannerTesto').textContent = 'I movimenti stanno solo su questo telefono. ' + testoUltimoBackup();
   }
 
@@ -3144,30 +3161,54 @@
   bottoneVoce.addEventListener('click', microfono);
   setTimeout(preparaVoce, 1200);
 
-  // ================================================================ suoni e piccole feste (17/11/2026)
-  // Francesco: «l'idea del suono quando si entra dentro mi piace… non un suono che mi crei tu, ma creato da te
+  // ================================================================ suoni e piccole animazioni (17-18/11/2026)
+  // Francesco, 17/11: «l'idea del suono quando si entra dentro mi piace… non un suono che mi crei tu, ma creato da te
   // attraverso qualcosa che trovi in giro». Registrazioni vere CC0 (fai_suoni.py), suonate da suoni.js.
-  // L'iPhone non lascia suonare un'app prima che la si tocchi (cercato il 17/11/2026: vale anche per le app della
-  // schermata Home): il suono d'apertura parte al primo tocco entro 12 secondi da quando la apre o ci torna dopo
-  // almeno 3 minuti. Mai sopra il microfono (lo registrerebbe) e mai mentre ascolta.
-  const suonoApertura = () => (S && S.APERTURE.some(a => a.id === pref.suonoApertura) ? pref.suonoApertura : 'apertura-devastante');
+  // 18/11: il suono che partiva al primo tocco l'ha sentito toccando l'occhio del saldo («mi piace ancora di più che si
+  // senta quando schiacci sul saldo, però dovrebbe sentirsi ogni volta»), e all'apertura vuole una sigla «in stile
+  // Clash Royale, che ti fa pensare: è quell'app». Quindi:
+  //  - il suono del saldo (Devastante, Cassa, Tesoro) a ogni tocco che mostra il saldo;
+  //  - la sigla all'apertura: prima si prova a suonarla subito; se l'iPhone non lo lascia fare senza un tocco (Web Audio
+  //    chiede un gesto), parte al primo tocco entro 12 secondi. Cosa è successo resta in pref.siglaSubito, e lo si
+  //    legge in Menù → Suoni. Se il primo tocco è l'occhio: prima la sigla, poi il saldo (in coda). Mai sopra il
+  //    microfono (lo registrerebbe) e mai mentre ascolta. Tornando sull'app dopo almeno 3 minuti, di nuovo.
+  const scelta = (lista, v, base) => (S && lista.some(a => a.id === v) ? v : base);
+  // la scelta fatta il 17/11 («apertura-…») era il suono che ha sentito sul saldo: passa al saldo
+  if (pref.suonoApertura && !pref.suonoSaldo) {
+    pref.suonoSaldo = pref.suonoApertura.replace(/^apertura-/, 'saldo-');
+    delete pref.suonoApertura;
+    scriviPref();
+  }
+  const suonoSigla = () => scelta(S ? S.SIGLE : [], pref.suonoSigla, 'sigla-oro');
+  const suonoSaldo = () => scelta(S ? S.SALDO : [], pref.suonoSaldo, 'saldo-devastante');
   const suoniMovimenti = () => pref.suoniMovimenti !== false;
   function suonaMovimento(nome) { if (S && suoniMovimenti() && statoVoce === 'fermo') S.suona(nome); }
-  let togliApertura = null, nascostaDa = 0;
-  function armaApertura() {
+  let togliSigla = null, nascostaDa = 0;
+  function sigla() {
     if (!S) return;
-    if (togliApertura) togliApertura();
-    togliApertura = S.alPrimoTocco(e => {
-      togliApertura = null;
-      const t = e && e.target && e.target.closest ? e.target : null;
-      if (statoVoce !== 'fermo' || (t && t.closest('#microfono'))) return;
-      S.sblocca();
-      if (suonoApertura() === 'nessuno') return;
-      S.suona(suonoApertura());
-      brillaTitolo();
-    }, 12000);
+    if (togliSigla) { togliSigla(); togliSigla = null; }
+    if (suonoSigla() === 'nessuno') return;
+    const nome = suonoSigla();
+    S.provaSubito(nome).then(subito => {
+      if (pref.siglaSubito !== subito) { pref.siglaSubito = subito; scriviPref(); }
+      if (subito) { brillaTitolo(); return; }
+      togliSigla = S.alPrimoTocco(e => {
+        togliSigla = null;
+        const t = e && e.target && e.target.closest ? e.target : null;
+        if (statoVoce !== 'fermo' || (t && t.closest('#microfono'))) return;
+        S.sblocca();
+        S.suona(nome);
+        brillaTitolo();
+      }, 12000);
+    });
   }
-  // «Devastanti» si accende: all'apertura, e di nuovo col suono
+  // il saldo mostrato: il suo suono, ogni volta (dopo la sigla, se sta ancora suonando)
+  function suonaSaldo() {
+    if (!S || statoVoce !== 'fermo') return;
+    S.sblocca();
+    S.suona(suonoSaldo(), { inCoda: true });
+  }
+  // «Devastanti» si accende: all'apertura, e di nuovo con la sigla
   function brillaTitolo() {
     const t = document.querySelector('.titolo-giu');
     if (!t) return;
@@ -3200,24 +3241,33 @@
 
   function apriSuoni() {
     apriFoglio('Suoni', corpo => {
-      corpo.appendChild(el('p', '', 'Registrazioni vere, non suoni finti: una cassa, monete, un colpo. Con l\'iPhone in silenzioso non suonano, e non fermano la musica.'));
-      corpo.appendChild(el('div', 'titoletto', 'Quando apri l\'app'));
-      const g = el('div', 'elenco-azioni');
-      for (const a of S.APERTURE) {
-        const b = tasto('azione scelta-suono', (a.id === suonoApertura() ? '✓ ' : '') + a.nome, () => {
-          pref.suonoApertura = a.id;
-          scriviPref();
-          S.sblocca();
-          if (a.id !== 'nessuno') { S.suona(a.id); brillaTitolo(); }
-          apriSuoni();
-        });
-        b.dataset.suono = a.id;
-        b.setAttribute('aria-pressed', String(a.id === suonoApertura()));
-        b.appendChild(el('small', '', a.sotto + (a.id !== 'nessuno' ? ' · tocca per sentirlo' : '')));
-        g.appendChild(b);
-      }
-      corpo.appendChild(g);
-      corpo.appendChild(el('p', 'nota-campo', 'L\'iPhone non lascia suonare un\'app prima che la tocchi: il suono parte al primo tocco, appena aperta. Se il primo tocco è il microfono, niente suono.'));
+      corpo.appendChild(el('p', '', 'Registrazioni vere, non suoni finti: trombe, una cassa, monete, un colpo. Con l\'iPhone in silenzioso non suonano, e non fermano la musica.'));
+      const gruppo = (titolo, lista, attuale, salva) => {
+        corpo.appendChild(el('div', 'titoletto', titolo));
+        const g = el('div', 'elenco-azioni');
+        for (const a of lista) {
+          const b = tasto('azione scelta-suono', (a.id === attuale ? '✓ ' : '') + a.nome, () => {
+            salva(a.id);
+            scriviPref();
+            S.sblocca();
+            if (a.id !== 'nessuno') S.suona(a.id);
+            if (a.id.startsWith('sigla-')) brillaTitolo();
+            apriSuoni();
+          });
+          b.dataset.suono = a.id;
+          b.setAttribute('aria-pressed', String(a.id === attuale));
+          b.appendChild(el('small', '', a.sotto + (a.id !== 'nessuno' ? ' · tocca per sentirlo' : '')));
+          g.appendChild(b);
+        }
+        corpo.appendChild(g);
+      };
+      gruppo('La sigla, quando apri l\'app', S.SIGLE, suonoSigla(), id => { pref.suonoSigla = id; });
+      corpo.appendChild(el('p', 'nota-campo', pref.siglaSubito === true
+        ? 'Su questo iPhone la sigla parte appena apri l\'app.'
+        : pref.siglaSubito === false
+          ? 'Questo iPhone non lascia suonare un\'app prima che la tocchi: la sigla parte al primo tocco (tranne sul microfono). Se il primo tocco è l\'occhio, prima la sigla e poi il saldo.'
+          : 'Se l\'iPhone non lascia suonare un\'app prima che la tocchi, la sigla parte al primo tocco.'));
+      gruppo('Quando mostri il saldo (l\'occhio)', S.SALDO, suonoSaldo(), id => { pref.suonoSaldo = id; });
       corpo.appendChild(el('div', 'titoletto', 'Quando salvi o cancelli'));
       const on = interruttore('Suoni dei movimenti', suoniMovimenti());
       on.casella.id = 'suoniMovimenti';
@@ -3235,72 +3285,249 @@
     });
   }
 
-  // ================================================================ cerca (17/11/2026)
-  // In tutti i mesi e in tutti i conti: parole della descrizione, categoria, conto o importo («12,50», «12»).
-  // Ogni parola scritta deve esserci. Si tocca un risultato per modificarlo.
-  function testoCercabile(m) {
+  // ================================================================ tutti i movimenti, dal… al…, e cerca (18/11/2026)
+  // Una vista sola per scorrere tutto (anche gli anni passati, dal più recente), scegliere il periodo («dal 20 aprile
+  // al 15 maggio») e cercare. In cima il resoconto: quanti, entrate, uscite, la differenza (dietro l'occhio, come il
+  // saldo) e le spese per categoria. Si apre da «Tutti i movimenti» sotto gli ultimi 10 o dalla lente (cursore nella
+  // ricerca). Le righe si costruiscono a blocchi mentre scorre: con anni di movimenti non si blocca.
+  // La ricerca, rifatta il 18/11 («serata lazy child» non lo trovava): il correttore dell'iPhone era acceso nel campo e
+  // cambiava le parole inglesi; ora è spento. Cerca anche nella frase originale, accetta una lettera sbagliata nelle
+  // parole lunghe (due dalle 7 lettere) e, se nessun movimento ha tutte le parole, mostra quelli che ne hanno di più e lo dice.
+  const pezzi = s => A.normalizza(s).split(/[\s·→()«»"!?;:/]+/).filter(Boolean);
+  function distanza(a, b, tetto) {   // quante lettere cambiano fra a e b; si ferma appena supera il tetto
+    if (Math.abs(a.length - b.length) > tetto) return tetto + 1;
+    let prec = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+      const riga = [i];
+      let minimo = i;
+      for (let j = 1; j <= b.length; j++) {
+        riga[j] = Math.min(prec[j] + 1, riga[j - 1] + 1, prec[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        if (riga[j] < minimo) minimo = riga[j];
+      }
+      if (minimo > tetto) return tetto + 1;
+      prec = riga;
+    }
+    return prec[b.length];
+  }
+  function cercabile(m) {
     const imp = (m.importo / 100).toFixed(2);
-    return A.normalizza([m.descrizione, m.categoria, eSpostamento(m) ? etichettaConto(m) : nomeConto(contoDi(m)),
+    const testo = A.normalizza([m.descrizione, m.testo || '', m.categoria, eSpostamento(m) ? etichettaConto(m) : nomeConto(contoDi(m)),
       etichettaTipo(m.tipo), imp, imp.replace('.', ','), euro(m.importo), m.data.slice(8, 10) + '/' + m.data.slice(5, 7)].join(' '));
+    return { testo, parole: pezzi(testo) };
   }
-  function cerca(q) {
-    const parole = A.normalizza(q).split(/\s+/).filter(Boolean);
-    if (!parole.length) return [];
-    return stato.movimenti.filter(m => { const t = testoCercabile(m); return parole.every(p => t.includes(p)); })
-      .sort((a, b) => b.data.localeCompare(a.data) || (b.creato || '').localeCompare(a.creato || ''));
+  // la parola w è nel movimento: dentro il testo, o una parola quasi uguale (anche solo l'inizio, se la sta scrivendo)
+  function somiglia(w, c) {
+    if (c.testo.includes(w)) return true;
+    if (w.length < 4 || /\d/.test(w)) return false;
+    const k = w.length >= 7 ? 2 : 1;
+    return c.parole.some(p => distanza(w, p, k) <= k || (p.length > w.length && distanza(w, p.slice(0, w.length), k) <= k));
   }
-  let ultimaRicerca = '';
-  function apriCerca(tornando) {
-    if (tornando !== true) tornando = false;
-    apriFoglio('Cerca', corpo => {
+  function cerca(q, lista) {
+    const parole = pezzi(q);
+    lista = lista || stato.movimenti;
+    if (!parole.length) return { trovati: lista, parziali: false, parole: 0, quante: 0 };
+    const tutte = [], conPunti = [];
+    for (const m of lista) {
+      const c = cercabile(m);
+      let n = 0;
+      for (const w of parole) if (somiglia(w, c)) n++;
+      if (n === parole.length) tutte.push(m);
+      else if (n) conPunti.push([n, m]);
+    }
+    if (tutte.length || !conPunti.length) return { trovati: tutte, parziali: false, parole: parole.length, quante: parole.length };
+    const quante = Math.max(...conPunti.map(x => x[0]));
+    return { trovati: conPunti.filter(x => x[0] === quante).map(x => x[1]), parziali: true, parole: parole.length, quante };
+  }
+
+  const PERIODI = [['mese', 'Questo mese'], ['scorso', 'Mese scorso'], ['tre', 'Ultimi 3 mesi'], ['anno', 'Quest\'anno'], ['tutto', 'Tutto']];
+  function intervallo(f) {
+    const d = oggi(), y = d.getFullYear(), mm = d.getMonth();
+    const primo = (a, m) => A.isoDa(new Date(a, m, 1)), ultimo = (a, m) => A.isoDa(new Date(a, m + 1, 0));
+    if (f.periodo === 'mese') return [primo(y, mm), ultimo(y, mm)];
+    if (f.periodo === 'scorso') return [primo(y, mm - 1), ultimo(y, mm - 1)];
+    if (f.periodo === 'tre') return [primo(y, mm - 2), ultimo(y, mm)];
+    if (f.periodo === 'anno') return [y + '-01-01', y + '-12-31'];
+    if (f.periodo === 'scelto') return [f.da, f.a];
+    return [null, null];
+  }
+  const BLOCCO = 80;
+  // opz: { periodo, da, a, conto, categoria, testo, cerca (cursore nella ricerca), filtri (per tornare com'era) }
+  function apriMovimenti(opz) {
+    opz = opz || {};
+    const f = opz.filtri || { testo: opz.testo || '', periodo: opz.periodo || 'tutto', da: opz.da || null, a: opz.a || null,
+      conto: opz.conto !== undefined ? opz.conto : vista.conto, categoria: opz.categoria || null, mostrati: BLOCCO, scorso: 0 };
+    let osservatore = null, timer = null;
+    apriFoglio('Movimenti', corpo => {
       const inp = el('input');
       inp.type = 'search';
       inp.id = 'testoCerca';
-      inp.autocomplete = 'off';
-      inp.setAttribute('enterkeyhint', 'search');
-      inp.placeholder = 'pizza, Esselunga, Svago, 12,50…';
-      inp.value = ultimaRicerca;
+      inp.value = f.testo;
+      inp.placeholder = 'Cerca: pizza, Esselunga, Svago, 12,50…';
+      // il correttore dell'iPhone cambiava le parole («lazy» → altro): spento
+      for (const [k, v] of [['autocomplete', 'off'], ['autocorrect', 'off'], ['autocapitalize', 'off'], ['spellcheck', 'false'], ['enterkeyhint', 'search']]) inp.setAttribute(k, v);
       const c = el('label', 'campo cerca-campo');
       c.appendChild(inp);
       corpo.appendChild(c);
-      const riassunto = el('p', 'riassunto');
-      riassunto.id = 'cercaRiassunto';
-      corpo.appendChild(riassunto);
-      const ris = el('div', 'risultati');
-      ris.id = 'risultatiCerca';
-      corpo.appendChild(ris);
-      const aggiorna = () => {
-        ultimaRicerca = inp.value;
-        ris.textContent = '';
-        const trovati = cerca(inp.value);
-        if (!inp.value.trim()) { riassunto.textContent = ''; ris.appendChild(el('p', 'vuoto', 'Scrivi una parola, una categoria, un conto o un importo: cerco in tutti i mesi.')); return; }
-        if (!trovati.length) { riassunto.textContent = ''; ris.appendChild(el('p', 'vuoto', 'Nessun movimento con «' + inp.value.trim() + '».')); return; }
-        const t = totali(trovati);
-        riassunto.textContent = trovati.length + (trovati.length === 1 ? ' movimento' : ' movimenti') +
-          (t.uscite ? ' · uscite ' + euro(t.uscite) : '') + (t.entrate ? ' · entrate ' + euro(t.entrate) : '') + (t.spostati ? ' · spostati ' + euro(t.spostati) : '');
-        let mese = null;
-        for (const m of trovati.slice(0, 300)) {
+      const chips = el('div', 'chips periodi');
+      chips.id = 'periodiMovimenti';
+      const bottoni = PERIODI.map(([k, nome]) => {
+        const b = tasto('chip senza-freccia', nome, () => { f.periodo = k; f.mostrati = BLOCCO; aggiorna(true); });
+        b.dataset.periodo = k;
+        chips.appendChild(b);
+        return b;
+      });
+      corpo.appendChild(chips);
+      const date = el('div', 'riga-date');
+      const inDa = el('input'); inDa.type = 'date'; inDa.id = 'movDa';
+      const inA = el('input'); inA.type = 'date'; inA.id = 'movA';
+      const cambia = () => {
+        const valido = v => /^\d{4}-\d{2}-\d{2}$/.test(v);
+        let da = valido(inDa.value) ? inDa.value : null, a = valido(inA.value) ? inA.value : null;
+        if (da && a && da > a) { const x = da; da = a; a = x; }
+        Object.assign(f, { periodo: 'scelto', da, a, mostrati: BLOCCO });
+        aggiorna(true);
+      };
+      inDa.addEventListener('change', cambia); inA.addEventListener('change', cambia);
+      date.appendChild(campo('Dal', inDa));
+      date.appendChild(campo('Al', inA));
+      corpo.appendChild(date);
+      const conti = el('div', 'segmentato largo conti-mov');
+      conti.id = 'contoMovimenti';
+      const bConti = [[null, '∑ Tutti']].concat(A.CONTI.map(x => [x.id, x.icona + ' ' + x.nome])).map(([id, nome]) => {
+        const b = tasto('', nome, () => { f.conto = id; f.mostrati = BLOCCO; aggiorna(true); });
+        b.dataset.conto = id || '';
+        conti.appendChild(b);
+        return b;
+      });
+      corpo.appendChild(conti);
+      const cat = tasto('chip piccolo', '', () => { f.categoria = null; f.mostrati = BLOCCO; aggiorna(true); });
+      cat.id = 'categoriaMovimenti';
+      corpo.appendChild(cat);
+      const res = el('div', 'resoconto');
+      res.id = 'movResoconto';
+      corpo.appendChild(res);
+      const lista = el('div', 'risultati');
+      lista.id = 'risultatiCerca';
+      corpo.appendChild(lista);
+
+      let righe = [], mese = null, giorno = null, fatte = 0, sentinella = null;
+      // le uscite di ogni mese, per il titolo del mese (un passaggio solo)
+      let uscitePerMese = new Map();
+      const altre = n => {
+        const fino = Math.min(righe.length, fatte + n);
+        const oggiIso = isoOggi();
+        const frammento = document.createDocumentFragment();
+        for (; fatte < fino; fatte++) {
+          const m = righe[fatte];
           const k = m.data.slice(0, 7);
           if (k !== mese) {
             mese = k;
-            ris.appendChild(el('div', 'giorno-titolo', maiuscola(MESI[Number(k.slice(5)) - 1]) + ' ' + k.slice(0, 4)));
+            const t = el('div', 'mese-titolo');
+            t.appendChild(el('span', '', maiuscola(MESI[Number(k.slice(5)) - 1]) + ' ' + k.slice(0, 4)));
+            if (uscitePerMese.get(k)) t.appendChild(el('span', 'mese-uscite', 'uscite ' + euro(uscitePerMese.get(k))));
+            frammento.appendChild(t);
           }
-          ris.appendChild(rigaMovimento(m, true));
+          if (m.data !== giorno) {
+            giorno = m.data;
+            const futuro = m.data > oggiIso;
+            frammento.appendChild(el('div', 'giorno-titolo' + (futuro ? ' in-arrivo' : ''), (futuro ? 'In arrivo · ' : '') + etichettaGiorno(m.data)));
+          }
+          frammento.appendChild(rigaMovimento(m, {
+            prima: () => { f.mostrati = Math.max(BLOCCO, fatte); f.scorso = $('foglio').scrollTop; },
+            dopo: () => apriMovimenti({ filtri: f })
+          }, f.conto));
         }
-        if (trovati.length > 300) ris.appendChild(el('p', 'nota', 'Ne mostro 300: aggiungi una parola per restringere.'));
+        if (sentinella) sentinella.remove();
+        lista.appendChild(frammento);
+        sentinella = null;
+        if (fatte < righe.length) {
+          sentinella = tasto('tasto-secondario altri', 'Mostra altri ' + Math.min(BLOCCO, righe.length - fatte) + ' (ne restano ' + (righe.length - fatte) + ')', () => altre(BLOCCO));
+          lista.appendChild(sentinella);
+          if (osservatore) { osservatore.disconnect(); osservatore.observe(sentinella); }
+        }
       };
-      inp.addEventListener('input', aggiorna);
+      const aggiorna = inCima => {
+        f.testo = inp.value;
+        const [da, a] = intervallo(f);
+        bottoni.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.periodo === f.periodo)));
+        bConti.forEach(b => b.setAttribute('aria-pressed', String((b.dataset.conto || null) === f.conto)));
+        cat.hidden = !f.categoria;
+        cat.textContent = f.categoria ? 'Solo ' + f.categoria : '';
+        const base = stato.movimenti.filter(m => (!da || m.data >= da) && (!a || m.data <= a) && tocca(m, f.conto) &&
+          (!f.categoria || (m.tipo === 'uscita' && m.categoria === f.categoria)));
+        let primo = '9999', ultimo = '';
+        for (const m of base) { if (m.data < primo) primo = m.data; if (m.data > ultimo) ultimo = m.data; }
+        inDa.value = da || (base.length ? primo : isoOggi());
+        inA.value = a || (ultimo > isoOggi() ? ultimo : isoOggi());
+        const r = cerca(f.testo, base);
+        righe = r.trovati.slice().sort(piuRecenti);
+        uscitePerMese = new Map();
+        for (const m of righe) if (m.tipo === 'uscita' && (!f.conto || contoDi(m) === f.conto)) uscitePerMese.set(m.data.slice(0, 7), (uscitePerMese.get(m.data.slice(0, 7)) || 0) + m.importo);
+        disegnaResoconto(res, righe, f, r, inDa.value, inA.value, () => aggiorna(false));
+        lista.textContent = '';
+        mese = null; giorno = null; fatte = 0; sentinella = null;
+        if (!righe.length) {
+          lista.appendChild(el('p', 'vuoto', f.testo.trim() ? 'Nessun movimento con «' + f.testo.trim() + '» in questo periodo.' : 'Nessun movimento in questo periodo.'));
+          return;
+        }
+        altre(Math.max(BLOCCO, f.mostrati || 0));
+        if (inCima && $('foglio').scrollTop > 0) $('foglio').scrollTop = 0;
+      };
+      inp.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(() => { f.mostrati = BLOCCO; aggiorna(false); }, 150); });
       inp.addEventListener('keydown', e => { if (e.key === 'Enter') inp.blur(); });
-      aggiorna();
-    });
-    // dentro il tocco sulla lente, a foglio già visibile: sull'iPhone così si apre la tastiera. Tornando da una
-    // modifica no: i risultati si vedono meglio senza
-    if (!tornando) { const i = $('testoCerca'); i.focus(); i.select(); }
+      if ('IntersectionObserver' in window) {
+        osservatore = new IntersectionObserver(voci => { if (voci.some(v => v.isIntersecting) && sentinella) altre(BLOCCO); }, { root: $('foglio'), rootMargin: '400px' });
+      }
+      aggiorna(false);
+    }, () => { if (osservatore) osservatore.disconnect(); clearTimeout(timer); });
+    // tornando da una modifica: al punto di prima
+    if (opz.filtri && f.scorso) $('foglio').scrollTop = f.scorso;
+    // dalla lente: il cursore nella ricerca, dentro il tocco (sull'iPhone così si apre la tastiera)
+    if (opz.cerca) { const i = $('testoCerca'); i.focus(); i.select(); }
   }
+  // il resoconto in cima: quanti, entrate, uscite, la differenza dietro l'occhio e le uscite per categoria
+  function disegnaResoconto(box, righe, f, r, da, a, ridisegna) {
+    box.textContent = '';
+    const t = totali(righe, f.conto);
+    const quando = f.periodo === 'tutto' ? 'Da sempre: ' + testoPeriodo(da, a).replace(/^D/, 'd') : testoPeriodo(da, a);
+    box.appendChild(el('p', 'res-titolo', quando + ' · ' + righe.length + (righe.length === 1 ? ' movimento' : ' movimenti') + (f.conto ? ' ' + inConto(f.conto) : '')));
+    if (r.parziali) box.appendChild(el('p', 'avviso', 'Nessun movimento ha tutte le parole: questi ne hanno ' + r.quante + ' su ' + r.parole + '.'));
+    if (!righe.length) return;
+    const tessere = el('div', 'tessere');
+    for (const [nome, v, classe] of [['Entrate', t.entrate, ' entrata'], ['Uscite', t.uscite, '']]) {
+      const x = el('div', 'tessera');
+      x.appendChild(el('span', 't-etichetta', nome));
+      x.appendChild(el('span', 't-valore' + classe, euro(v)));
+      tessere.appendChild(x);
+    }
+    box.appendChild(tessere);
+    const diff = tasto('res-saldo', '', () => { if (!saldoVisibile) { cambiaOcchio(true); ridisegna(); } });
+    diff.id = 'movDifferenza';
+    diff.appendChild(el('span', '', f.conto && (t.arrivati || t.partiti) ? 'Entrate meno uscite, più gli spostamenti' : 'Entrate meno uscite'));
+    diff.appendChild(el('span', 'res-saldo-valore', saldoConSegno(t.saldo)));
+    box.appendChild(diff);
+    const somme = new Map();
+    for (const m of righe) if (m.tipo === 'uscita' && (!f.conto || contoDi(m) === f.conto)) somme.set(m.categoria, (somme.get(m.categoria) || 0) + m.importo);
+    const cat = [...somme.entries()].sort((x, y) => y[1] - x[1]);
+    if (cat.length > 1) {
+      const ol = el('ol', 'res-categorie');
+      for (const [nome, cent] of cat.slice(0, 5)) {
+        const li = el('li');
+        li.appendChild(el('span', 'res-cat-nome', iconaDi('uscita', nome) + ' ' + nome));
+        li.appendChild(el('span', 'res-cat-valore', euro(cent) + ' · ' + percento(cent, t.uscite)));
+        ol.appendChild(li);
+      }
+      if (cat.length > 5) ol.appendChild(el('li', 'res-cat-altre', 'e altre ' + (cat.length - 5) + ' categorie'));
+      box.appendChild(ol);
+    }
+  }
+  const apriCerca = () => apriMovimenti({ periodo: 'tutto', conto: null, cerca: true });
 
   // ================================================================ eventi generali
   $('apriMenu').addEventListener('click', apriMenu);
   $('apriCerca').addEventListener('click', () => apriCerca());
+  // sotto gli ultimi 10: tutti, dal più recente, con la categoria e il conto che sta guardando
+  $('tuttiMovimenti').addEventListener('click', () => apriMovimenti({ periodo: 'tutto', categoria: vista.filtro, conto: vista.conto }));
   $('incollaTrasloco').addEventListener('click', incollaDallaVecchia);
   $('bannerEsporta').addEventListener('click', () => apriEsporta('tutto'));
   $('modSaldo').addEventListener('click', () => apriSaldo(vista.conto || undefined));
@@ -3309,6 +3536,8 @@
   $('filtro').addEventListener('click', () => { vista.filtro = null; disegna(); });
   $('occhio').addEventListener('click', () => cambiaOcchio());
   $('occhioSaldi').addEventListener('click', () => cambiaOcchio());
+  // anche toccando i pallini del saldo («quando schiacci il saldo»)
+  $('heroValore').addEventListener('click', () => { if (!saldoVisibile) cambiaOcchio(true); });
   // uscendo dall'app il saldo si rinasconde: tornandoci si vede coperto
   document.addEventListener('visibilitychange', () => { if (document.hidden && saldoVisibile) { saldoVisibile = false; disegna(); } });
   document.querySelectorAll('#sceltaConto button').forEach(b => b.addEventListener('click', () => scegliVistaConto(b.dataset.conto)));
@@ -3339,7 +3568,7 @@
     disegna();
     applicaSfondo();
     // tornarci dopo almeno 3 minuti è come riaprirla: di nuovo il suono d'apertura al primo tocco
-    if (nascostaDa && Date.now() - nascostaDa >= 180000) { armaApertura(); brillaTitolo(); }
+    if (nascostaDa && Date.now() - nascostaDa >= 180000) { sigla(); brillaTitolo(); }
   });
 
   // Dopo la traduzione dei dati vecchi (10/11/2026): i movimenti finiti in «Altro» si rileggono con le
@@ -3369,8 +3598,8 @@
   generaRicorrenti();
   rileggi();
   disegna();
-  armaApertura();
   brillaTitolo();
+  sigla();
   // i suoni si scaricano e si decodificano quando l'app è ferma (dal service worker, anche senza rete)
   if (S) (window.requestIdleCallback ? f => requestIdleCallback(f, { timeout: 3000 }) : f => setTimeout(f, 800))(() => S.prepara());
 
@@ -3401,6 +3630,6 @@
     generaRicorrenti, saldoAttuale, liquidi, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
     vista: () => vista, scegliVistaConto, saldoVisibile: () => saldoVisibile,
-    controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriSuoni, spazioUsato
+    controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriMovimenti, apriSuoni, spazioUsato
   };
 })();

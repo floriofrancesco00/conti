@@ -3,7 +3,7 @@
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
 importScripts('edizione.js');
 const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
-const VERSIONE = '2026.11.17-1700';
+const VERSIONE = '2026.11.17-2227';
 const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
@@ -20,7 +20,8 @@ const FILE = [
   './icone/icona-192.png',
   './icone/icona-512.png'
 ].concat(   // i suoni (17/11/2026): piccoli, 5-27 KB l'uno, così suonano anche senza rete
-  ['apertura-devastante', 'apertura-cassa', 'apertura-tesoro', 'entrata', 'uscita', 'spostamento', 'elimina'].map(n => './suoni/' + n + '.mp3'),
+  ['sigla-oro', 'sigla-fanfara', 'sigla-corno', 'sigla-tada', 'saldo-devastante', 'saldo-cassa', 'saldo-tesoro',
+    'entrata', 'uscita', 'spostamento', 'elimina'].map(n => './suoni/' + n + '.mp3'),
   ['./suoni/suoni.json']
 );
 
