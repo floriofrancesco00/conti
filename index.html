@@ -23,6 +23,9 @@
   <div>
     <h1 id="titoloApp" class="titolo-app"><span class="titolo-su">Che Conti</span><span class="titolo-giu">Devastanti</span></h1>
     <p id="oggi" class="oggi"></p>
+    <!-- 18/11/2026: la festa del giorno (feste.js) e il santo (santi.json, da Wikipedia) -->
+    <p id="festa" class="festa-saluto" hidden></p>
+    <p id="santo" class="santo" hidden></p>
     <p id="sfondoNome" class="sfondo-nome"></p>
   </div>
   <div class="testata-tasti">
@@ -137,6 +140,7 @@
       </div>
     </div>
     <div id="autonomiaCorpo"></div>
+    <p id="autonomiaDettagli" class="tocca-dettagli">Tocca per vedere i conti e tutte le spese fisse ›</p>
   </section>
 
   <section id="sezCategorie" class="carta sezione" aria-labelledby="titoloCategorie">
@@ -159,7 +163,7 @@
 
   <section id="sezMovimenti" class="carta sezione" aria-labelledby="titoloMovimenti">
     <div class="titolo-sez">
-      <h3 id="titoloMovimenti">Ultimi movimenti</h3>
+      <h3 id="titoloMovimenti" class="apribile">Ultimi movimenti</h3>
       <button id="filtro" class="chip piccolo" type="button" hidden></button>
     </div>
     <div id="lista"></div>
@@ -179,6 +183,7 @@
 <script src="analizza.js"></script>
 <script src="voce.js"></script>
 <script src="suoni.js"></script>
+<script src="feste.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

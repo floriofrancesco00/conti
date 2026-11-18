@@ -553,3 +553,30 @@ body.voce-attiva .scorciatoie { display: none; }
 .risultati .mese-titolo:first-child { margin-top: 8px; }
 .risultati .giorno-titolo { margin-top: 10px; }
 .altri { width: 100%; margin-top: 12px; }
+
+/* ---------------------------------------------------------------- 18/11/2026: feste, santo, dettagli dei riquadri */
+.festa-saluto { font-size: 15px; font-weight: 700; color: #fff; text-shadow: 0 1px 8px rgba(0, 0, 0, 0.6); margin-top: 2px; }
+.santo {
+  font-size: 13px; font-style: italic; color: rgba(255, 255, 255, 0.9); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.65); margin-top: 1px;
+  max-width: 72vw; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden;
+}
+.santo[hidden] { display: none !important; }
+.festa-particella { position: fixed; top: 0; z-index: 35; pointer-events: none; line-height: 1; will-change: transform, opacity; }
+.festa-riga { display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 2px; border-bottom: 1px solid var(--filo); }
+.festa-testi { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.festa-nome { font-size: 15px; font-weight: 600; }
+.festa-quando { font-size: 13px; color: var(--testo-2); }
+.foglio select {
+  width: 100%; font: 17px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--testo);
+  background: var(--superficie-2); border: 1px solid var(--bordo); border-radius: 12px; padding: 12px; min-height: 48px;
+}
+/* i riquadri che si aprono toccandoli */
+#sezAutonomia { cursor: pointer; }
+.tocca-dettagli { font-size: 13px; color: var(--accento); margin-top: 10px; font-weight: 600; }
+h3.apribile { cursor: pointer; }
+h3.apribile::after { content: " ›"; color: var(--testo-tenue); font-weight: 500; }
+.fissi-gruppo { margin-top: 12px; }
+.fissi-titolo { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 15px; font-weight: 700; padding: 6px 2px; border-bottom: 2px solid var(--filo); }
+.fissi-totale { font-size: 13px; font-weight: 500; color: var(--testo-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mov.fisso-riga.in-pausa { opacity: 0.55; }
+.foglio .aut-mesi { font-size: 32px; font-weight: 650; color: var(--testo); margin-top: 2px; }

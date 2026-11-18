@@ -103,6 +103,116 @@
   ]
  },
  {
+  "id": "saldo-contanti",
+  "nome": "Banconote",
+  "secondi": 1.3,
+  "fonti": [
+   {
+    "titolo": "banknote-counter.wav",
+    "autore": "madvedj",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/178097/"
+   }
+  ]
+ },
+ {
+  "id": "saldo-digitale",
+  "nome": "POS",
+  "secondi": 0.8,
+  "fonti": [
+   {
+    "titolo": "Contactloos betalen pinnen pinautomaat payment",
+    "autore": "Mega-X-stream",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/638835/"
+   }
+  ]
+ },
+ {
+  "id": "saldo-cripto",
+  "nome": "Moneta digitale",
+  "secondi": 1.0,
+  "fonti": [
+   {
+    "titolo": "GAMEMisc_Designed, Coin, Pick-Up, Tonal, High Pitched, Digital_15_JW Audio",
+    "autore": "JW_Audio",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/830033/"
+   }
+  ]
+ },
+ {
+  "id": "festa-natale",
+  "nome": "Sonagli",
+  "secondi": 2.6,
+  "fonti": [
+   {
+    "titolo": "Sleigh_Bells (7-22-12 edit).mp3",
+    "autore": "jsm1963",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/453202/"
+   }
+  ]
+ },
+ {
+  "id": "festa-capodanno",
+  "nome": "Tappo e trombetta",
+  "secondi": 1.28,
+  "fonti": [
+   {
+    "titolo": "Popping the cork off a champagne bottle: Loud pop, light bubbles. Slight reverb tail. Recorded with ZoomH6, with Rifle Microphone, a compressor was used to ensure no clipping.",
+    "autore": "Kate_is_yellow",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/708201/"
+   },
+   {
+    "titolo": "Party horn.wav",
+    "autore": "audiosmedia",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/170583/"
+   }
+  ]
+ },
+ {
+  "id": "festa-trombetta",
+  "nome": "Trombetta",
+  "secondi": 1.0,
+  "fonti": [
+   {
+    "titolo": "Party horn.wav",
+    "autore": "audiosmedia",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/170583/"
+   }
+  ]
+ },
+ {
+  "id": "festa-halloween",
+  "nome": "Strega",
+  "secondi": 2.6,
+  "fonti": [
+   {
+    "titolo": "Witch's Laugh.wav",
+    "autore": "NikoMyth",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/348142/"
+   }
+  ]
+ },
+ {
+  "id": "festa-pasqua",
+  "nome": "Campane",
+  "secondi": 3.0,
+  "fonti": [
+   {
+    "titolo": "Old Church Bell.wav",
+    "autore": "dsp9000",
+    "licenza": "CC0 1.0",
+    "fonte": "https://freesound.org/s/76405/"
+   }
+  ]
+ },
+ {
   "id": "entrata",
   "nome": null,
   "secondi": 1.05,

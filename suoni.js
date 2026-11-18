@@ -1,7 +1,7 @@
 /* Che Conti Devastanti — i suoni (dal 17/11/2026).
    Registrazioni vere con licenza CC0 (Freesound e Kenney), tagliate e pareggiate da fai_suoni.py: niente sintesi.
    Suonano con Web Audio, che sull'iPhone si mescola con la musica (non ferma Spotify) e tace col silenzioso.
-   18/11/2026: la sigla all'apertura (Suoni.provaSubito, poi il primo tocco se l'iPhone non lascia suonare prima),
+   17/11/2026 sera: la sigla all'apertura (Suoni.provaSubito, poi il primo tocco se l'iPhone non lascia suonare prima),
    il suono del saldo a ogni tocco dell'occhio, quelli dei movimenti da Salva ed Elimina.
    window.__CONTI_MUTO (banco di prova): non apre l'audio del computer, segna soltanto cosa avrebbe suonato;
    window.__CONTI_SUBITO finge un telefono che lascia suonare prima del tocco. */
@@ -20,7 +20,11 @@
     { id: 'saldo-tesoro', nome: 'Tesoro', sotto: 'Un forziere che si apre' },
     { id: 'nessuno', nome: 'Nessuno', sotto: 'Il saldo si mostra in silenzio' }
   ];
-  const NOMI = SIGLE.concat(SALDO).map(s => s.id).filter(n => n !== 'nessuno').concat(['entrata', 'uscita', 'spostamento', 'elimina']);
+  // 18/11/2026: il saldo di ogni conto ha il suo suono; le feste hanno il loro al posto della sigla (feste.js)
+  const CONTI = { contanti: 'saldo-contanti', digitale: 'saldo-digitale', cripto: 'saldo-cripto' };
+  const FESTE = ['festa-natale', 'festa-capodanno', 'festa-trombetta', 'festa-halloween', 'festa-pasqua'];
+  const NOMI = SIGLE.concat(SALDO).map(s => s.id).filter(n => n !== 'nessuno')
+    .concat(Object.values(CONTI), FESTE, ['entrata', 'uscita', 'spostamento', 'elimina']);
   const suonati = [];   // per le prove: cosa ha suonato (o avrebbe suonato), in ordine
   const muto = () => !!window.__CONTI_MUTO;
   let ctx = null, caricamento = null, sigillo = 0;   // sigillo: fino a quando (secondi del contesto) suona la sigla
@@ -138,6 +142,6 @@
     return togli;
   }
 
-  window.Suoni = { NOMI, SIGLE, SALDO, prepara, sblocca, suona, provaSubito, ferma, alPrimoTocco, suonati: () => suonati.slice(),
+  window.Suoni = { NOMI, SIGLE, SALDO, CONTI, FESTE, prepara, sblocca, suona, provaSubito, ferma, alPrimoTocco, suonati: () => suonati.slice(),
     stato: () => (ctx ? ctx.state : muto() ? 'muto' : 'chiuso'), pronti: () => Object.keys(buffer).length };
 })();

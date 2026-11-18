@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.17-2227';
+  const VERSIONE = '2026.11.18-2028';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -288,7 +288,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'sigla quando apri (Menù → Suoni), suono del saldo a ogni tocco dell’occhio, ultimi 10 movimenti e «Tutti i movimenti» dal… al…, ricerca rifatta';
+  const NOVITA = 'feste a tema (Menù → Feste e santi), il santo del giorno sotto la data, un suono diverso per conto sull’occhio, il dettaglio dei mesi di autonomia toccando il riquadro';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -1105,7 +1105,8 @@
     });
   }
 
-  function apriFisso(esistente) {
+  // dopo (facoltativo): dopo Salva o Elimina, per tornare dove si era (il dettaglio dei mesi di autonomia)
+  function apriFisso(esistente, dopo) {
     const nuovo = !esistente;
     const ora = chiaveMese(oggi());
     const b = esistente ? copiaConto(Object.assign({}, esistente, { importo: Math.abs(esistente.importo) }), esistente)
@@ -1191,6 +1192,7 @@
         aggiornaInArrivo(esistente, true);
         stato.ricorrenti = stato.ricorrenti.filter(r => r.id !== esistente.id);
         scrivi(); chiudiFoglio(); disegna();
+        if (dopo) dopo();
         mostraToast('Movimento fisso eliminato');
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
@@ -1214,6 +1216,7 @@
         chiudiFoglio();
         generaRicorrenti();
         disegna();
+        if (dopo) dopo();
         if (nuovo) mostraToast('Movimento fisso salvato: ogni ' + b.giorno + ' del mese');
       }));
       corpo.appendChild(riga);
@@ -1310,15 +1313,16 @@
   function speseMedie() {
     if (!stato.movimenti.length) return null;
     const primo = stato.movimenti.reduce((a, m) => (m.data < a ? m.data : a), '9999-12-31');
-    const d = oggi(), totali = [];
+    const d = oggi(), totali = [], dettaglio = [];
     for (let k = 1; k <= 3; k++) {
       const inizio = new Date(d.getFullYear(), d.getMonth() - k, 1);
       if (primo > A.isoDa(new Date(inizio.getFullYear(), inizio.getMonth(), 7))) break;
       const chiave = chiaveMese(inizio);
       totali.push(stato.movimenti.filter(m => spesaVera(m) && m.data.slice(0, 7) === chiave).reduce((a, m) => a + m.importo, 0));
+      dettaglio.push([chiave, totali[totali.length - 1]]);
     }
     if (!totali.length) return null;
-    return { media: Math.round(totali.reduce((a, b) => a + b, 0) / totali.length), mesi: totali.length };
+    return { media: Math.round(totali.reduce((a, b) => a + b, 0) / totali.length), mesi: totali.length, dettaglio };
   }
 
   function formatoMesi(x) {
@@ -1335,6 +1339,31 @@
     r.appendChild(el('span', '', nome));
     r.appendChild(el('span', '', valore));
     righe.appendChild(r);
+  }
+
+  // il calcolo dei mesi di autonomia (lo usano il riquadro e il suo dettaglio)
+  function calcoloAutonomia() {
+    const saldi = {};
+    for (const c of CONTI_ID) saldi[c] = saldoAttuale(c);
+    const sa = liquidi();
+    const ft = fondoTasse();
+    const tasse = ft ? Math.max(0, ft.fondo) : 0;
+    const spendibili = sa === null ? null : sa - tasse;
+    const sm = speseMedie();
+    const fissi = stato.ricorrenti.filter(r => r.attivo && spesaVera(r)).reduce((a, r) => a + r.importo, 0);
+    let mesi = null, spiegazione;
+    if (sa === null) {
+      spiegazione = 'Per calcolarli servono i saldi dei contanti o del digitale: le cripto non contano.';
+    } else if (sm && sm.media > 0) {
+      mesi = spendibili / sm.media;
+      spiegazione = 'senza entrate, con contanti e digitale e le spese medie ' + (sm.mesi === 1 ? 'dell\'ultimo mese' : 'degli ultimi ' + sm.mesi + ' mesi') + ' (' + euro(sm.media) + ' al mese, investimenti esclusi). Le cripto non contano.';
+    } else if (fissi > 0) {
+      mesi = spendibili / fissi;
+      spiegazione = 'senza entrate, con contanti e digitale e solo le spese fisse (' + euro(fissi) + ' al mese, investimenti esclusi): il conto vero arriva dopo il primo mese intero.';
+    } else {
+      spiegazione = 'Per calcolarli servono le spese di un mese intero, oppure i movimenti fissi.';
+    }
+    return { saldi, sa, ft, tasse, spendibili, sm, fissi, mesi, spiegazione };
   }
 
   function disegnaAutonomia() {
@@ -1354,24 +1383,7 @@
       corpo.appendChild(r);
       return;
     }
-    const sa = liquidi();
-    const ft = fondoTasse();
-    const tasse = ft ? Math.max(0, ft.fondo) : 0;
-    const spendibili = sa === null ? null : sa - tasse;
-    const sm = speseMedie();
-    const fissi = stato.ricorrenti.filter(r => r.attivo && spesaVera(r)).reduce((a, r) => a + r.importo, 0);
-    let mesi = null, spiegazione;
-    if (sa === null) {
-      spiegazione = 'Per calcolarli servono i saldi dei contanti o del digitale: le cripto non contano.';
-    } else if (sm && sm.media > 0) {
-      mesi = spendibili / sm.media;
-      spiegazione = 'senza entrate, con contanti e digitale e le spese medie ' + (sm.mesi === 1 ? 'dell\'ultimo mese' : 'degli ultimi ' + sm.mesi + ' mesi') + ' (' + euro(sm.media) + ' al mese, investimenti esclusi). Le cripto non contano.';
-    } else if (fissi > 0) {
-      mesi = spendibili / fissi;
-      spiegazione = 'senza entrate, con contanti e digitale e solo le spese fisse (' + euro(fissi) + ' al mese, investimenti esclusi): il conto vero arriva dopo il primo mese intero.';
-    } else {
-      spiegazione = 'Per calcolarli servono le spese di un mese intero, oppure i movimenti fissi.';
-    }
+    const { sa, ft, tasse, spendibili, mesi, spiegazione } = calcoloAutonomia();
     corpo.appendChild(el('p', 'aut-mesi', mesi !== null ? formatoMesi(mesi) : '—'));
     corpo.appendChild(el('p', 'aut-testo', spiegazione));
     const righe = el('div', 'aut-righe');
@@ -1759,6 +1771,7 @@
   function disegna() {
     const ora = oggi();
     $('oggi').textContent = maiuscola(GIORNI[ora.getDay()]) + ' ' + ora.getDate() + ' ' + MESI[ora.getMonth()];
+    disegnaGiornata();
     $('titoloPeriodo').textContent = vista.modo === 'anno' ? String(vista.anno) : maiuscola(MESI[vista.mese]) + ' ' + vista.anno;
     const ultimo = ultimoMese();
     const attuale = vista.anno + '-' + String(vista.mese + 1).padStart(2, '0');
@@ -1823,11 +1836,12 @@
     }
     $('occhioSaldi').hidden = $('modSaldo').hidden;   // senza saldi inseriti non c'è niente da nascondere
   }
-  // mostrando il saldo, il suo suono (18/11/2026: «dovrebbe potersi sentire ogni volta che ci schiacci»)
-  function cambiaOcchio(v) {
+  // mostrando il saldo, il suo suono (17/11/2026 sera: «dovrebbe potersi sentire ogni volta che ci schiacci»)
+  // conto: quello che si guarda (di solito quello della pagina): ogni conto ha il suo suono (18/11/2026)
+  function cambiaOcchio(v, conto) {
     const prima = saldoVisibile;
     saldoVisibile = v === undefined ? !saldoVisibile : !!v;
-    if (saldoVisibile && !prima) suonaSaldo();
+    if (saldoVisibile && !prima) suonaSaldo(conto);
     disegna();
   }
 
@@ -1955,7 +1969,7 @@
     $('graficoNota').textContent = nota;
   }
 
-  // Gli ultimi movimenti (18/11/2026, Francesco: «con il tempo diventerà sempre più grande… basta una piccola tabella
+  // Gli ultimi movimenti (17/11/2026 sera, Francesco: «con il tempo diventerà sempre più grande… basta una piccola tabella
   // con gli ultimi 10 movimenti, come sulle app bancarie, e poi tutti i movimenti dal… al…»). Qui i 10 più recenti del
   // periodo che guarda (sopra, quelli in arrivo del mese), e sotto il tasto per la vista completa (apriMovimenti).
   const ULTIMI = 10;
@@ -2446,6 +2460,10 @@
       voce('🧾 Tasse da accantonare', stato.tasse.attiva ? String(stato.tasse.percentuale).replace('.', ',') + '% di ' + (stato.tasse.categorie.join(', ') || 'nessuna categoria') : 'Spento', apriTasse);
       voce('🏷️ Categorie', 'Aggiungi, rinomina, cambia simbolo, nascondi o elimina.', apriCategorie);
       voce('🎙️ Microfono', descriviVoce(), apriImpostazioniVoce);
+      if (F) {
+        const pr = F.prossime(oggi(), 1, pref.compleanno)[0];
+        voce('🎉 Feste e santi', !festeAccese() ? 'Feste a tema spente' : pr ? 'La prossima: ' + pr.festa.nome + ', ' + etichettaGiorno(A.isoDa(pr.data)).toLowerCase() : 'Feste a tema e santo del giorno', apriFeste).id = 'voceFeste';
+      }
       if (S) {
         const nomeDi = (lista, id) => lista.find(a => a.id === id).nome;
         voce('🔊 Suoni', 'Sigla: ' + nomeDi(S.SIGLE, suonoSigla()) + ' · saldo: ' + nomeDi(S.SALDO, suonoSaldo())
@@ -2793,6 +2811,8 @@
           us.appendChild(li);
         }
       };
+      corpo.appendChild(el('div', 'titoletto', 'Santi del giorno'));
+      corpo.appendChild(el('p', '', 'Da Wikipedia in italiano (licenza CC BY-SA 4.0): il Calendario romano generale e, nei giorni senza una celebrazione ufficiale, la pagina del giorno.'));
       if (creditiSuoni) scrivi(creditiSuoni);
       else fetch('suoni/suoni.json').then(r => r.json()).then(l => { creditiSuoni = l; if (document.body.contains(us)) scrivi(l); }).catch(() => {});
     });
@@ -3161,10 +3181,10 @@
   bottoneVoce.addEventListener('click', microfono);
   setTimeout(preparaVoce, 1200);
 
-  // ================================================================ suoni e piccole animazioni (17-18/11/2026)
+  // ================================================================ suoni e piccole animazioni (17/11/2026)
   // Francesco, 17/11: «l'idea del suono quando si entra dentro mi piace… non un suono che mi crei tu, ma creato da te
   // attraverso qualcosa che trovi in giro». Registrazioni vere CC0 (fai_suoni.py), suonate da suoni.js.
-  // 18/11: il suono che partiva al primo tocco l'ha sentito toccando l'occhio del saldo («mi piace ancora di più che si
+  // 17/11 sera: il suono che partiva al primo tocco l'ha sentito toccando l'occhio del saldo («mi piace ancora di più che si
   // senta quando schiacci sul saldo, però dovrebbe sentirsi ogni volta»), e all'apertura vuole una sigla «in stile
   // Clash Royale, che ti fa pensare: è quell'app». Quindi:
   //  - il suono del saldo (Devastante, Cassa, Tesoro) a ogni tocco che mostra il saldo;
@@ -3188,7 +3208,8 @@
     if (!S) return;
     if (togliSigla) { togliSigla(); togliSigla = null; }
     if (suonoSigla() === 'nessuno') return;
-    const nome = suonoSigla();
+    const festa = festaDiOggi();
+    const nome = festa && festa.suono ? festa.suono : suonoSigla();
     S.provaSubito(nome).then(subito => {
       if (pref.siglaSubito !== subito) { pref.siglaSubito = subito; scriviPref(); }
       if (subito) { brillaTitolo(); return; }
@@ -3203,10 +3224,13 @@
     });
   }
   // il saldo mostrato: il suo suono, ogni volta (dopo la sigla, se sta ancora suonando)
-  function suonaSaldo() {
-    if (!S || statoVoce !== 'fermo') return;
+  // 18/11/2026: «un rumore diverso quando schiaccio l'occhio su digitale rispetto a contanti e cripto»: guardando un
+  // conto, il suo (banconote, il bip del POS, una moneta digitale); su «Tutto» quello scelto. «Nessuno» li spegne tutti.
+  function suonaSaldo(conto) {
+    if (!S || statoVoce !== 'fermo' || suonoSaldo() === 'nessuno') return;
+    const c = conto === undefined ? vista.conto : conto;
     S.sblocca();
-    S.suona(suonoSaldo(), { inCoda: true });
+    S.suona(c && S.CONTI[c] ? S.CONTI[c] : suonoSaldo(), { inCoda: true });
   }
   // «Devastanti» si accende: all'apertura, e di nuovo con la sigla
   function brillaTitolo() {
@@ -3226,8 +3250,9 @@
   function pioggiaDiMonete(r) {
     if (pocoMovimento() || !r || !r.width || !document.body.animate) return;
     const x0 = r.left + r.width / 2, y0 = r.top + r.height / 2;
+    const simbolo = (festaDiOggi() || {}).moneta || '🪙';   // a Natale 🎁, a Halloween 🍬…
     for (let i = 0; i < 9; i++) {
-      const m = el('span', 'moneta', '🪙');
+      const m = el('span', 'moneta', simbolo);
       m.style.left = x0 + 'px'; m.style.top = y0 + 'px';
       document.body.appendChild(m);
       const dx = (Math.random() - 0.5) * 220, su = 90 + Math.random() * 120, giro = (Math.random() - 0.5) * 540;
@@ -3268,6 +3293,15 @@
           ? 'Questo iPhone non lascia suonare un\'app prima che la tocchi: la sigla parte al primo tocco (tranne sul microfono). Se il primo tocco è l\'occhio, prima la sigla e poi il saldo.'
           : 'Se l\'iPhone non lascia suonare un\'app prima che la tocchi, la sigla parte al primo tocco.'));
       gruppo('Quando mostri il saldo (l\'occhio)', S.SALDO, suonoSaldo(), id => { pref.suonoSaldo = id; });
+      corpo.appendChild(el('p', 'nota-campo', 'Su «Tutto» quello che scegli qui. Guardando un conto, il suo:'));
+      const pc = el('div', 'chips');
+      pc.style.marginTop = '8px';
+      for (const [c, cosa] of [['contanti', '💶 Banconote'], ['digitale', '💳 POS'], ['cripto', '🪙 Moneta digitale']]) {
+        const b = tasto('chip senza-freccia', '▶ ' + cosa, () => { S.sblocca(); S.suona(S.CONTI[c]); });
+        b.dataset.suonoConto = c;
+        pc.appendChild(b);
+      }
+      corpo.appendChild(pc);
       corpo.appendChild(el('div', 'titoletto', 'Quando salvi o cancelli'));
       const on = interruttore('Suoni dei movimenti', suoniMovimenti());
       on.casella.id = 'suoniMovimenti';
@@ -3285,12 +3319,244 @@
     });
   }
 
-  // ================================================================ tutti i movimenti, dal… al…, e cerca (18/11/2026)
+  // ================================================================ feste e santo del giorno (18/11/2026)
+  // Francesco: «quando c'è un giorno di festa voglio che ci sia qualcosa a tema», e «scrivimi in piccolo, in alto a
+  // sinistra, sotto la data, il nome del santo di oggi: può essere un buon aggancio per fare gli auguri».
+  // Le feste stanno in feste.js; nei loro giorni: il saluto sotto la data, i colori del titolo, la pioggia di simboli
+  // all'apertura, il suono della festa al posto della sigla (se c'è), le monete delle entrate a tema. Il compleanno lo
+  // scrive lui in Menù → Feste e santi e resta sul telefono. Il santo da santi.json (fai_santi.py, da Wikipedia).
+  const F = window.Feste;
+  const festeAccese = () => pref.feste !== false;
+  let festaProva = null;   // l'anteprima dal menù: { festa, fino }
+  function festaDiOggi() {
+    if (festaProva && Date.now() < festaProva.fino) return festaProva.festa;
+    return F && festeAccese() ? F.festaDi(oggi(), pref.compleanno) : null;
+  }
+  let santi = null;
+  fetch('santi.json').then(r => (r.ok ? r.json() : null)).then(s => { if (s && typeof s === 'object') { santi = s; disegnaGiornata(); } }).catch(() => {});
+  const santoDi = d => (santi ? santi[String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')] || null : null);
+  function disegnaGiornata() {
+    const f = festaDiOggi(), s = santoDi(oggi());
+    $('festa').hidden = !f;
+    $('festa').textContent = f ? f.saluto : '';
+    $('santo').hidden = !s;
+    // «Oggi è Sant'Ilario», ma «Oggi: Dedicazione delle basiliche…» per le celebrazioni che non sono una persona
+    $('santo').textContent = s ? (/^(San|Sant|Santa|Santi|Sante|Santo|Beata|Madonna|Maria|Nostra)\b|^Sant'/i.test(s) ? 'Oggi è ' : 'Oggi: ') + s : '';
+    // i colori della festa sul titolo infuocato; non sul titolo semplice delle edizioni degli amici («Conti», bianco),
+    // dove il colore non è ritagliato sulle lettere e farebbe un rettangolo
+    const t = document.querySelector('.titolo-giu');
+    if (t && t.previousElementSibling) t.style.backgroundImage = f ? 'linear-gradient(100deg, ' + f.colori.join(', ') + ')' : '';
+    document.body.dataset.festa = f ? f.id : '';
+  }
+  // una pioggia di simboli della festa, per qualche secondo; poi sparisce
+  function pioggiaFesta(f) {
+    if (!f || pocoMovimento() || !document.body.animate) return;
+    const w = window.innerWidth, h = window.innerHeight;
+    for (let i = 0; i < 24; i++) {
+      const s = el('span', 'festa-particella', f.simboli[i % f.simboli.length]);
+      s.style.left = Math.round(Math.random() * (w - 20)) + 'px';
+      s.style.fontSize = Math.round(18 + Math.random() * 16) + 'px';
+      document.body.appendChild(s);
+      const dx = (Math.random() - 0.5) * 140, giro = (Math.random() - 0.5) * 360;
+      s.animate([
+        { transform: 'translate(0, -50px) rotate(0deg)', opacity: 0 },
+        { opacity: 1, offset: 0.08 },
+        { transform: `translate(${dx}px, ${h + 50}px) rotate(${giro}deg)`, opacity: 0.85 }
+      ], { duration: 2800 + Math.random() * 2600, delay: Math.random() * 1600, easing: 'linear', fill: 'both' }).onfinish = () => s.remove();
+    }
+  }
+  // «▶ Prova» dal menù: la festa per qualche secondo, con pioggia e suono, per vederla prima che arrivi
+  function anteprimaFesta(id) {
+    const f = F && F.perId(id);
+    if (!f) return;
+    festaProva = { festa: f, fino: Date.now() + 9000 };
+    chiudiFoglio();
+    disegnaGiornata();
+    brillaTitolo();
+    pioggiaFesta(f);
+    if (S && suonoSigla() !== 'nessuno') { S.sblocca(); S.suona(f.suono || suonoSigla()); }
+    setTimeout(() => { festaProva = null; disegnaGiornata(); }, 9100);
+  }
+  function apriFeste() {
+    apriFoglio('Feste e santi', corpo => {
+      corpo.appendChild(el('p', '', 'Nei giorni di festa l\'app si veste a tema: un saluto sotto la data, i colori del titolo, una pioggia di simboli quando la apri e, per alcune feste, un suono al posto della sigla.'));
+      const on = interruttore('Feste a tema', festeAccese());
+      on.casella.id = 'festeAccese';
+      on.casella.addEventListener('change', () => { pref.feste = on.casella.checked; scriviPref(); disegnaGiornata(); });
+      corpo.appendChild(on.etichetta);
+      // il compleanno: giorno e mese, senza anno; resta solo sul telefono
+      corpo.appendChild(el('div', 'titoletto', 'Il tuo compleanno'));
+      const riga = el('div', 'riga-date');
+      const selG = el('select'), selM = el('select');
+      selG.id = 'compleannoGiorno'; selM.id = 'compleannoMese';
+      selG.appendChild(new Option('—', ''));
+      for (let g = 1; g <= 31; g++) selG.appendChild(new Option(String(g), String(g).padStart(2, '0')));
+      selM.appendChild(new Option('—', ''));
+      MESI.forEach((m, i) => selM.appendChild(new Option(maiuscola(m), String(i + 1).padStart(2, '0'))));
+      if (pref.compleanno) { selM.value = pref.compleanno.slice(0, 2); selG.value = pref.compleanno.slice(3, 5); }
+      // si salva quando ci sono giorno e mese; con uno solo si aspetta l'altro (rifacendo il foglio si perdeva il primo)
+      const salvaCompleanno = () => {
+        const g = selG.value, m = selM.value;
+        if (g && m) pref.compleanno = m + '-' + g;
+        else if (pref.compleanno || (!g && !m)) pref.compleanno = null;
+        else return;
+        scriviPref();
+        disegnaGiornata();
+        apriFeste();
+      };
+      selG.addEventListener('change', salvaCompleanno); selM.addEventListener('change', salvaCompleanno);
+      riga.appendChild(campo('Giorno', selG));
+      riga.appendChild(campo('Mese', selM));
+      corpo.appendChild(riga);
+      corpo.appendChild(el('p', 'nota-campo', 'Quel giorno l\'app ti fa gli auguri. Resta solo su questo telefono.'));
+      // le prossime feste, ognuna da provare
+      corpo.appendChild(el('div', 'titoletto', 'Le prossime feste'));
+      const lista = el('div', 'elenco-righe');
+      lista.id = 'prossimeFeste';
+      for (const { festa, data } of F.prossime(oggi(), 10, pref.compleanno)) {
+        const r = el('div', 'festa-riga');
+        const testi = el('span', 'festa-testi');
+        testi.appendChild(el('span', 'festa-nome', festa.saluto.split(' ')[0] + ' ' + festa.nome));
+        const tra = Math.round((data - oggi()) / GIORNO_MS);
+        testi.appendChild(el('span', 'festa-quando', (tra === 0 ? 'Oggi' : etichettaGiorno(A.isoDa(data))) + (tra > 1 ? ' · tra ' + tra + ' giorni' : '') + (festa.suono ? ' · col suono' : '')));
+        r.appendChild(testi);
+        const prova = tasto('tasto-piccolo', '▶ Prova', () => anteprimaFesta(festa.id));
+        prova.dataset.festa = festa.id;
+        r.appendChild(prova);
+        lista.appendChild(r);
+      }
+      corpo.appendChild(lista);
+      // il santo
+      corpo.appendChild(el('div', 'titoletto', 'Il santo del giorno'));
+      const domani = new Date(oggi().getFullYear(), oggi().getMonth(), oggi().getDate() + 1);
+      const righe = el('div', 'aut-righe');
+      for (const [nome, d] of [['Oggi', oggi()], ['Domani', domani]]) {
+        const x = el('div', 'aut-riga');
+        x.appendChild(el('span', '', nome));
+        x.appendChild(el('span', '', santoDi(d) || '—'));
+        righe.appendChild(x);
+      }
+      corpo.appendChild(righe);
+      corpo.appendChild(el('p', 'nota', 'Da Wikipedia: il Calendario romano generale, cioè le celebrazioni ufficiali dei calendari. Nei giorni senza una celebrazione ufficiale è il santo più conosciuto fra quelli del giorno, con un nome diffuso in Italia: lì può non essere quello del calendario di casa.'));
+    });
+  }
+
+  // ================================================================ il dettaglio dei mesi di autonomia (18/11/2026)
+  // Toccando il riquadro: i soldi che contano, la spesa media mese per mese e tutte le spese fisse divise per categoria,
+  // con le entrate, gli investimenti e gli spostamenti fissi a parte. Guardando un conto, il suo saldo e i suoi fissi.
+  // Un fisso si tocca per modificarlo, e si torna qui.
+  function apriAutonomia(conto) {
+    if (conto === undefined) conto = vista.conto;
+    const torna = () => apriAutonomia(conto);
+    apriFoglio(conto ? 'Saldo ' + inConto(conto) : 'Mesi di autonomia', corpo => {
+      const occhio = tasto('tasto-piccolo angolo', saldoVisibile ? '🙈 Nascondi' : '👁 Mostra', () => { cambiaOcchio(!saldoVisibile, conto); torna(); });
+      occhio.id = 'autOcchio';
+      corpo.appendChild(occhio);
+      const righe = () => { const r = el('div', 'aut-righe'); corpo.appendChild(r); return r; };
+      let spendibili = null;
+      if (conto) {
+        const v = saldoAttuale(conto), s = stato.saldi[conto];
+        corpo.appendChild(el('p', 'aut-mesi', v === null ? 'Da inserire' : saldoEuro(v)));
+        if (s) {
+          // da quando l'ha inserito: entrate, uscite e spostamenti di questo conto
+          let e = 0, u = 0, dentro = 0, fuori = 0;
+          const oggiIso = isoOggi();
+          for (const m of stato.movimenti) {
+            if (m.data > oggiIso || !(m.data > s.data || (m.data === s.data && (m.creato || '') > (s.aggiornato || ''))) || !tocca(m, conto)) continue;
+            if (eSpostamento(m)) { if (m.verso === conto) dentro += m.importo; else fuori += m.importo; }
+            else if (m.tipo === 'entrata') e += m.importo; else u += m.importo;
+          }
+          const r = righe();
+          rigaSaldo(r, 'Saldo inserito ' + etichettaGiorno(s.data).toLowerCase(), saldoEuro(s.importo), () => apriSaldo(conto));
+          rigaSaldo(r, 'Entrate da allora', '+' + euro(e));
+          rigaSaldo(r, 'Uscite da allora', '−' + euro(u));
+          if (dentro || fuori) rigaSaldo(r, 'Spostamenti da allora', (dentro ? '+' + euro(dentro) : '') + (dentro && fuori ? ' ' : '') + (fuori ? '−' + euro(fuori) : ''));
+          rigaSaldo(r, 'Oggi', saldoEuro(v), null, true);
+        } else {
+          const b = tasto('tasto-secondario', 'Inserisci il saldo', () => apriSaldo(conto));
+          b.style.marginTop = '8px';
+          corpo.appendChild(b);
+        }
+      } else {
+        const a = calcoloAutonomia();
+        spendibili = a.spendibili;
+        corpo.appendChild(el('p', 'aut-mesi', a.mesi !== null ? formatoMesi(a.mesi) : '—'));
+        corpo.appendChild(el('p', 'aut-testo', a.spiegazione));
+        corpo.appendChild(el('div', 'titoletto', 'I soldi che contano'));
+        const r = righe();
+        for (const c of CONTI_LIQUIDI) rigaSaldo(r, nomeConto(c) + ' oggi', a.saldi[c] !== null ? saldoEuro(a.saldi[c]) : 'da inserire', () => apriSaldo(c));
+        if (a.sa !== null) {
+          if (a.ft) rigaSaldo(r, 'Da tenere per le tasse', a.tasse ? '−' + euro(a.tasse) : euro(0));
+          rigaSaldo(r, 'Spendibili', saldoEuro(a.spendibili), null, true);
+        }
+        rigaSaldo(r, nomeConto('cripto') + ' · non conta', a.saldi.cripto !== null ? saldoEuro(a.saldi.cripto) : 'da inserire', () => apriSaldo('cripto'));
+        corpo.appendChild(el('div', 'titoletto', 'La spesa media'));
+        if (a.sm) {
+          const r2 = righe();
+          for (const [k, v] of a.sm.dettaglio) rigaSaldo(r2, maiuscola(MESI[Number(k.slice(5)) - 1]) + ' ' + k.slice(0, 4), euro(v));
+          rigaSaldo(r2, 'Media al mese', euro(a.sm.media), null, true);
+          corpo.appendChild(el('p', 'nota-campo', 'Le uscite dei mesi finiti, fino a tre, senza gli investimenti. Il mese in corso non conta: è a metà.'));
+        } else {
+          corpo.appendChild(el('p', 'aut-testo', 'Serve un mese intero di spese: fino ad allora il calcolo usa solo le spese fisse.'));
+        }
+      }
+      // le spese fisse, per categoria
+      const fissi = stato.ricorrenti.filter(r => tocca(r, conto));
+      const attivi = l => l.filter(r => r.attivo);
+      const somma = l => attivi(l).reduce((x, r) => x + r.importo, 0);
+      const uscite = fissi.filter(r => r.tipo === 'uscita'), vere = uscite.filter(spesaVera), invest = uscite.filter(r => !spesaVera(r));
+      const entrate = fissi.filter(r => r.tipo === 'entrata'), sposta = fissi.filter(eSpostamento);
+      corpo.appendChild(el('div', 'titoletto', 'Spese fisse' + (conto ? ' ' + inConto(conto) : ', per categoria')));
+      if (!fissi.length) {
+        corpo.appendChild(el('p', 'aut-testo', 'Nessun movimento fisso' + (conto ? ' ' + inConto(conto) : '') + ' ancora. Si dicono anche nella frase: «spotify 10,99 ogni 18 del mese».'));
+      } else {
+        const tot = somma(vere);
+        corpo.appendChild(el('p', 'riassunto', 'Al mese: uscite fisse ' + euro(tot) + (somma(invest) ? ' · investimenti ' + euro(somma(invest)) : '') + (somma(entrate) ? ' · entrate ' + euro(somma(entrate)) : '')));
+        if (spendibili > 0 && tot > 0) corpo.appendChild(el('p', 'aut-testo', 'Con le sole spese fisse reggeresti ' + formatoMesi(spendibili / tot) + '.'));
+        const voceFisso = (box, r) => {
+          const b = el('button', 'mov fisso-riga' + (r.attivo ? '' : ' in-pausa'));
+          b.type = 'button';
+          b.dataset.fisso = r.id;
+          b.appendChild(el('span', 'mov-icona', eSpostamento(r) ? '↔' : iconaDi(r.tipo, r.categoria)));
+          const testi = el('span', 'mov-testi');
+          testi.appendChild(el('span', 'mov-desc', r.descrizione));
+          testi.appendChild(el('span', 'mov-cat', 'ogni ' + r.giorno + ' del mese · ' + (eSpostamento(r) ? etichettaConto(r) : infoConto(contoDi(r)).icona) + (r.attivo ? '' : ' · in pausa')));
+          b.appendChild(testi);
+          b.appendChild(el('span', 'mov-importo ' + r.tipo, segnoDi(r.tipo) + euro(r.importo)));
+          b.addEventListener('click', () => apriFisso(r, torna));
+          box.appendChild(b);
+        };
+        const gruppo = (titolo, lista, nota) => {
+          if (!lista.length) return;
+          const box = el('div', 'fissi-gruppo');
+          const t = el('div', 'fissi-titolo');
+          t.appendChild(el('span', '', titolo));
+          t.appendChild(el('span', 'fissi-totale', euro(somma(lista)) + (nota ? ' · ' + nota : '')));
+          box.appendChild(t);
+          lista.slice().sort((a, b) => a.giorno - b.giorno).forEach(r => voceFisso(box, r));
+          corpo.appendChild(box);
+        };
+        const perCat = new Map();
+        for (const r of vere) { if (!perCat.has(r.categoria)) perCat.set(r.categoria, []); perCat.get(r.categoria).push(r); }
+        [...perCat.entries()].sort((x, y) => somma(y[1]) - somma(x[1]))
+          .forEach(([cat, l]) => gruppo(iconaDi('uscita', cat) + ' ' + cat, l, tot ? percento(somma(l), tot) : ''));
+        gruppo(iconaDi('uscita', catInvestimenti()) + ' ' + catInvestimenti(), invest, 'non contano nei mesi');
+        gruppo('💰 Entrate fisse', entrate, '');
+        gruppo('↔ Spostamenti fissi', sposta, 'non contano');
+      }
+      const tasti = el('div', 'riga-tasti');
+      tasti.appendChild(tasto('tasto-secondario', '＋ Aggiungi un fisso', () => apriFisso(null, torna)));
+      tasti.appendChild(tasto('tasto-secondario', conto ? 'Correggi saldo' : 'Correggi saldi', () => apriSaldo(conto || undefined)));
+      corpo.appendChild(tasti);
+    });
+  }
+
+  // ================================================================ tutti i movimenti, dal… al…, e cerca (17/11/2026 sera)
   // Una vista sola per scorrere tutto (anche gli anni passati, dal più recente), scegliere il periodo («dal 20 aprile
   // al 15 maggio») e cercare. In cima il resoconto: quanti, entrate, uscite, la differenza (dietro l'occhio, come il
   // saldo) e le spese per categoria. Si apre da «Tutti i movimenti» sotto gli ultimi 10 o dalla lente (cursore nella
   // ricerca). Le righe si costruiscono a blocchi mentre scorre: con anni di movimenti non si blocca.
-  // La ricerca, rifatta il 18/11 («serata lazy child» non lo trovava): il correttore dell'iPhone era acceso nel campo e
+  // La ricerca, rifatta il 17/11 sera («serata lazy child» non lo trovava): il correttore dell'iPhone era acceso nel campo e
   // cambiava le parole inglesi; ora è spento. Cerca anche nella frase originale, accetta una lettera sbagliata nelle
   // parole lunghe (due dalle 7 lettere) e, se nessun movimento ha tutte le parole, mostra quelli che ne hanno di più e lo dice.
   const pezzi = s => A.normalizza(s).split(/[\s·→()«»"!?;:/]+/).filter(Boolean);
@@ -3501,7 +3767,7 @@
       tessere.appendChild(x);
     }
     box.appendChild(tessere);
-    const diff = tasto('res-saldo', '', () => { if (!saldoVisibile) { cambiaOcchio(true); ridisegna(); } });
+    const diff = tasto('res-saldo', '', () => { if (!saldoVisibile) { cambiaOcchio(true, f.conto); ridisegna(); } });
     diff.id = 'movDifferenza';
     diff.appendChild(el('span', '', f.conto && (t.arrivati || t.partiti) ? 'Entrate meno uscite, più gli spostamenti' : 'Entrate meno uscite'));
     diff.appendChild(el('span', 'res-saldo-valore', saldoConSegno(t.saldo)));
@@ -3528,6 +3794,9 @@
   $('apriCerca').addEventListener('click', () => apriCerca());
   // sotto gli ultimi 10: tutti, dal più recente, con la categoria e il conto che sta guardando
   $('tuttiMovimenti').addEventListener('click', () => apriMovimenti({ periodo: 'tutto', categoria: vista.filtro, conto: vista.conto }));
+  // 18/11/2026: «quando clicchi su movimenti te li ingrandisce, quando clicchi su mesi di autonomia te li mostra al dettaglio»
+  $('titoloMovimenti').addEventListener('click', () => apriMovimenti({ periodo: 'tutto', categoria: vista.filtro, conto: vista.conto }));
+  $('sezAutonomia').addEventListener('click', e => { if (e.target.closest('button, a, input, select, label')) return; apriAutonomia(); });
   $('incollaTrasloco').addEventListener('click', incollaDallaVecchia);
   $('bannerEsporta').addEventListener('click', () => apriEsporta('tutto'));
   $('modSaldo').addEventListener('click', () => apriSaldo(vista.conto || undefined));
@@ -3568,7 +3837,7 @@
     disegna();
     applicaSfondo();
     // tornarci dopo almeno 3 minuti è come riaprirla: di nuovo il suono d'apertura al primo tocco
-    if (nascostaDa && Date.now() - nascostaDa >= 180000) { sigla(); brillaTitolo(); }
+    if (nascostaDa && Date.now() - nascostaDa >= 180000) { sigla(); brillaTitolo(); pioggiaFesta(festaDiOggi()); }
   });
 
   // Dopo la traduzione dei dati vecchi (10/11/2026): i movimenti finiti in «Altro» si rileggono con le
@@ -3600,6 +3869,7 @@
   disegna();
   brillaTitolo();
   sigla();
+  pioggiaFesta(festaDiOggi());
   // i suoni si scaricano e si decodificano quando l'app è ferma (dal service worker, anche senza rete)
   if (S) (window.requestIdleCallback ? f => requestIdleCallback(f, { timeout: 3000 }) : f => setTimeout(f, 800))(() => S.prepara());
 
@@ -3630,6 +3900,7 @@
     generaRicorrenti, saldoAttuale, liquidi, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
     vista: () => vista, scegliVistaConto, saldoVisibile: () => saldoVisibile,
-    controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriMovimenti, apriSuoni, spazioUsato
+    controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriMovimenti, apriSuoni, spazioUsato,
+    apriAutonomia, apriFeste, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
   };
 })();
