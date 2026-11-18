@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.18-2028';
+  const VERSIONE = '2026.11.18-2237';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -288,7 +288,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'feste a tema (Menù → Feste e santi), il santo del giorno sotto la data, un suono diverso per conto sull’occhio, il dettaglio dei mesi di autonomia toccando il riquadro';
+  const NOVITA = '🎛️ Suoni del creatore nel menù (solo tuoi), e i santi presi anche dai calendari di una volta';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -2468,6 +2468,8 @@
         const nomeDi = (lista, id) => lista.find(a => a.id === id).nome;
         voce('🔊 Suoni', 'Sigla: ' + nomeDi(S.SIGLE, suonoSigla()) + ' · saldo: ' + nomeDi(S.SALDO, suonoSaldo())
           + (suoniMovimenti() ? ' · cassa e monete quando salvi' : ' · movimenti in silenzio'), apriSuoni).id = 'voceSuoni';
+        // solo nell'edizione di Francesco, per sempre (sua richiesta del 18/11/2026): mai in quelle degli amici
+        if (ED.nome === 'principale') voce('🎛️ Suoni del creatore', 'Tutti i suoni dell\'app, da suonare quando vuoi', apriCreatore).id = 'voceCreatore';
       }
       corpo.appendChild(imp);
 
@@ -3262,6 +3264,52 @@
         { transform: `translate(calc(-50% + ${dx}px), calc(-50% - ${su * 0.35}px)) scale(0.9) rotate(${giro}deg)`, opacity: 0 }
       ], { duration: 900 + Math.random() * 300, easing: 'cubic-bezier(.2,.7,.3,1)', delay: i * 25 }).onfinish = () => m.remove();
     }
+  }
+
+  // ---------------------------------------------------------------- i suoni del creatore (18/11/2026)
+  // Francesco: «una modalità che si chiama suoni del creatore, dove posso schiacciare e provare tutti i suoni che ci
+  // sono, e posso farlo solamente io: per mostrarlo a qualcuno, o per ascoltarmelo da solo e divertirmici». Una
+  // tastiera di tutti i suoni, divisi per gruppo, più uno a caso. Solo nella sua edizione (ED.nome 'principale').
+  const TAVOLA_SUONI = [
+    ['Sigle', [['sigla-oro', '🏆', 'Fanfara d\'oro'], ['sigla-fanfara', '🎺', 'Fanfara'], ['sigla-corno', '📯', 'Corno di guerra'], ['sigla-tada', '✨', 'Ta-da']]],
+    ['Saldo', [['saldo-devastante', '💥', 'Devastante'], ['saldo-cassa', '🧾', 'Cassa'], ['saldo-tesoro', '💎', 'Tesoro']]],
+    ['Conti', [['saldo-contanti', '💶', 'Banconote'], ['saldo-digitale', '💳', 'POS'], ['saldo-cripto', '🪙', 'Moneta digitale']]],
+    ['Movimenti', [['entrata', '💰', 'Entrata'], ['uscita', '🪙', 'Uscita'], ['spostamento', '↔️', 'Spostamento'], ['elimina', '🗑️', 'Cestino']]],
+    ['Feste', [['festa-natale', '🎄', 'Natale'], ['festa-capodanno', '🍾', 'Capodanno'], ['festa-trombetta', '🎉', 'Trombetta'],
+      ['festa-halloween', '🎃', 'Halloween'], ['festa-pasqua', '🔔', 'Pasqua']]]
+  ];
+  function apriCreatore() {
+    apriFoglio('Suoni del creatore', corpo => {
+      corpo.appendChild(el('p', '', 'Tutti i suoni dell\'app. Tocca e senti. Questa tastiera c\'è solo nella tua app.'));
+      const tutti = TAVOLA_SUONI.flatMap(([, l]) => l);
+      const suona = (b, id) => {
+        S.sblocca();
+        S.suona(id);
+        b.classList.remove('suona');
+        void b.offsetWidth;   // per far ripartire l'animazione
+        b.classList.add('suona');
+      };
+      const caso = tasto('tasto-primario creatore-caso', '🎲 Uno a caso', () => {
+        const [id, icona, nome] = tutti[Math.floor(Math.random() * tutti.length)];
+        caso.textContent = '🎲 ' + icona + ' ' + nome;
+        suona(caso, id);
+      });
+      caso.id = 'creatoreCaso';
+      corpo.appendChild(caso);
+      for (const [titolo, lista] of TAVOLA_SUONI) {
+        corpo.appendChild(el('div', 'titoletto', titolo));
+        const g = el('div', 'creatore-griglia');
+        for (const [id, icona, nome] of lista) {
+          const b = tasto('creatore-tasto', '', () => suona(b, id));
+          b.dataset.suono = id;
+          b.appendChild(el('span', 'creatore-icona', icona));
+          b.appendChild(el('span', 'creatore-nome', nome));
+          g.appendChild(b);
+        }
+        corpo.appendChild(g);
+      }
+      corpo.appendChild(el('p', 'nota', 'Col silenzioso dell\'iPhone non si sentono. Da dove vengono: Menù → Crediti di foto e suoni.'));
+    });
   }
 
   function apriSuoni() {

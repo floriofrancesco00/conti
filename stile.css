@@ -580,3 +580,18 @@ h3.apribile::after { content: " ›"; color: var(--testo-tenue); font-weight: 50
 .fissi-totale { font-size: 13px; font-weight: 500; color: var(--testo-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .mov.fisso-riga.in-pausa { opacity: 0.55; }
 .foglio .aut-mesi { font-size: 32px; font-weight: 650; color: var(--testo); margin-top: 2px; }
+
+/* i suoni del creatore (18/11/2026): una tastiera di suoni */
+.creatore-caso { width: 100%; margin-top: 12px; }
+.creatore-griglia { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.creatore-tasto {
+  min-height: 88px; border-radius: 16px; border: 1px solid var(--bordo); background: var(--superficie-2); padding: 8px 4px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+  -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+}
+.creatore-icona { font-size: 30px; line-height: 1; }
+.creatore-nome { font-size: 13px; font-weight: 600; text-align: center; color: var(--testo-2); }
+.creatore-tasto:active, .creatore-caso:active { transform: scale(0.96); }
+.creatore-tasto.suona, .creatore-caso.suona { animation: suona 0.5s ease-out 1; }
+@keyframes suona { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accento) 55%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+@media (prefers-reduced-motion: reduce) { .creatore-tasto.suona, .creatore-caso.suona { animation: none; } }
