@@ -27,7 +27,7 @@
     .concat(Object.values(CONTI), FESTE, ['entrata', 'uscita', 'spostamento', 'elimina']);
   const suonati = [];   // per le prove: cosa ha suonato (o avrebbe suonato), in ordine
   const muto = () => !!window.__CONTI_MUTO;
-  let ctx = null, caricamento = null, sigillo = 0;   // sigillo: fino a quando (secondi del contesto) suona la sigla
+  let ctx = null, caricamento = null;
   const buffer = {};
 
   function contesto() {
@@ -62,32 +62,85 @@
       s.start(0);
     } catch (e) { /* niente */ }
   }
+  // Un suono alla volta, e mai suoni vecchi (19/11/2026). Francesco: «ogni tanto si bloccano, e quando li apri tutti e
+  // tre insieme fanno il suono tutti e tre insieme, si sovrappongono». Era così: con l'audio del telefono in pausa
+  // (app tornata dal sottofondo, dopo il microfono, appena aperta coi suoni ancora da decodificare) i suoni si mettevano
+  // in fila invece di sparire, e alla ripresa partivano tutti insieme. Ora:
+  //  - un suono nuovo ferma quello che sta suonando (sfumandolo in 40 ms); solo «inCoda» (il saldo dopo la sigla) aspetta;
+  //  - se l'audio non è pronto, aspetta soltanto l'ultimo suono chiesto, e solo per ATTESA_MS: poi si butta.
+  const ATTESA_MS = 1000;
+  let attivi = [], inAttesa = null, bloccato = 0;
+  function fermaTutti(c) {
+    const t = c.currentTime;
+    for (const a of attivi) {
+      try { a.g.gain.setTargetAtTime(0, t, 0.012); a.s.stop(t + 0.06); } catch (e) { /* già finito */ }
+    }
+    attivi = [];
+  }
+  function avvia(c, nome, opz) {
+    const b = buffer[nome];
+    if (!b || c.state !== 'running') return false;
+    const ora = c.currentTime;
+    const sigla = attivi.find(a => a.nome.startsWith('sigla-') && a.fine > ora + 0.2);
+    let quando = ora;
+    if (opz.inCoda && sigla) {
+      for (const a of attivi) if (a !== sigla) { try { a.s.stop(); } catch (e) { /* */ } }   // in coda: solo la sigla resta
+      attivi = [sigla];
+      quando = sigla.fine - 0.15;
+    } else fermaTutti(c);
+    const s = c.createBufferSource(), g = c.createGain();
+    s.buffer = b;
+    g.gain.value = opz.volume === undefined ? 1 : opz.volume;
+    s.connect(g); g.connect(c.destination);
+    s.start(quando);
+    const voce = { s, g, nome, fine: quando + b.duration };
+    attivi.push(voce);
+    s.onended = () => { attivi = attivi.filter(a => a !== voce); };
+    return true;
+  }
+  function riprova() {
+    if (!inAttesa) return;
+    const c = contesto();
+    if (!c || performance.now() - inAttesa.t > ATTESA_MS) { inAttesa = null; return; }
+    if (c.state === 'running' && buffer[inAttesa.nome]) {
+      const { nome, opz } = inAttesa;
+      inAttesa = null;
+      avvia(c, nome, opz);
+    }
+  }
   // opz.inCoda: se sta suonando la sigla, parte appena finisce (il primo tocco sull'occhio: sigla, poi saldo)
   function suona(nome, opz) {
     if (!nome || nome === 'nessuno') return false;
     opz = opz || {};
     suonati.push(nome);
     if (muto()) return true;
-    const c = contesto();
+    const c = bloccato ? rifai() : contesto();
     if (!c) return false;
     sblocca();
-    const via = () => {
-      const b = buffer[nome];
-      if (!b) return false;
-      const s = c.createBufferSource(), g = c.createGain();
-      s.buffer = b;
-      g.gain.value = opz.volume === undefined ? 1 : opz.volume;
-      s.connect(g); g.connect(c.destination);
-      const quando = opz.inCoda && sigillo > c.currentTime ? sigillo - 0.15 : 0;
-      s.start(quando);
-      if (nome.startsWith('sigla-')) sigillo = c.currentTime + b.duration;
-      return true;
-    };
-    if (buffer[nome]) return via();
-    // non ancora pronto (il primo tocco appena aperta): suona appena è decodificato, se non è passato troppo
-    const t0 = performance.now();
-    prepara().then(() => { if (performance.now() - t0 < 1500) via(); });
+    if (c.state === 'running' && buffer[nome]) { inAttesa = null; bloccato = 0; return avvia(c, nome, opz); }
+    // non pronto: aspetta lui solo (quello di prima, se c'era, non suona più)
+    const questa = inAttesa = { nome, opz, t: performance.now() };
+    if (!c.__ascolta) { c.__ascolta = true; c.addEventListener('statechange', riprova); }
+    prepara().then(riprova);
+    setTimeout(riprova, 250);
+    setTimeout(riprova, 600);
+    setTimeout(() => {
+      if (inAttesa !== questa) return;   // è suonato, o ne è arrivato un altro
+      if (c.state === 'running' && buffer[nome]) { inAttesa = null; avvia(c, nome, opz); return; }
+      inAttesa = null;
+      // dopo un tocco l'audio non è ripartito: l'iPhone a volte lo lascia bloccato dopo il sottofondo. Al prossimo
+      // tocco se ne apre uno nuovo (i suoni già decodificati si riusano: non appartengono all'audio vecchio)
+      if (buffer[nome] && c.state !== 'running') bloccato++;
+    }, ATTESA_MS);
     return true;
+  }
+  // un audio nuovo al posto di quello bloccato, dentro il tocco
+  function rifai() {
+    try { if (ctx && ctx.close) ctx.close().catch(() => {}); } catch (e) { /* già chiuso */ }
+    ctx = null;
+    attivi = [];
+    bloccato = 0;
+    return contesto();
   }
   // La sigla appena aperta, se il telefono lo lascia fare senza un tocco: si prova ad aprire l'audio e si guarda se
   // parte davvero. Vero se ha suonato; falso se l'iPhone lo blocca (allora la sigla aspetta il primo tocco).
@@ -111,6 +164,8 @@
   // prima del microfono: l'audio dei suoni si mette in pausa, così non contende il microfono al riconoscimento della
   // voce (il prossimo suono lo riapre da solo, sempre dentro un tocco)
   function ferma() {
+    inAttesa = null;
+    if (ctx) fermaTutti(ctx);
     if (ctx && ctx.state === 'running') ctx.suspend().catch(() => {});
   }
   // Il primo tocco entro «finoA» millisecondi: chiama alTocco(evento) una volta sola. Pointerup e touchend, non
@@ -143,5 +198,8 @@
   }
 
   window.Suoni = { NOMI, SIGLE, SALDO, CONTI, FESTE, prepara, sblocca, suona, provaSubito, ferma, alPrimoTocco, suonati: () => suonati.slice(),
-    stato: () => (ctx ? ctx.state : muto() ? 'muto' : 'chiuso'), pronti: () => Object.keys(buffer).length };
+    stato: () => (ctx ? ctx.state : muto() ? 'muto' : 'chiuso'), pronti: () => Object.keys(buffer).length,
+    // per le prove: cosa sta suonando adesso (nome e quando finisce) e cosa aspetta
+    attivi: () => attivi.map(a => ({ nome: a.nome, inizio: Math.round((a.fine - (buffer[a.nome] ? buffer[a.nome].duration : 0)) * 100) / 100 })),
+    inAttesa: () => (inAttesa ? inAttesa.nome : null), tempo: () => (ctx ? ctx.currentTime : 0), bloccato: () => bloccato };
 })();

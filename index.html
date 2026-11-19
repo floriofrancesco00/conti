@@ -43,7 +43,7 @@
     <label for="frase" id="etichettaFrase" class="etichetta">Cosa hai speso o incassato?</label>
     <div class="riga-frase">
       <textarea id="frase" rows="1" enterkeyhint="done" autocomplete="off" autocorrect="on" autocapitalize="sentences"
-        spellcheck="true" placeholder="pizza 12 ieri · provvigione 1800"></textarea>
+        spellcheck="true" placeholder="Scrivi o detta"></textarea>
       <button id="microfono" class="tasto-microfono" type="button" aria-label="Detta a voce">
         <svg class="icona-mic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3Zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2Z"/></svg>
         <svg class="icona-stop" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
@@ -75,11 +75,11 @@
       </div>
       <p id="antAvviso" class="avviso" hidden></p>
     </div>
-    <p id="suggerimento" class="suggerimento">Scrivi o detta, poi Salva. Per esempio «caffè 1,20 in contanti», «pizza 12, benzina 50» o «netflix 13,99 ogni mese».</p>
+    <p id="suggerimento" class="suggerimento" hidden></p>
   </section>
 
   <div id="bannerTrasloco" class="carta banner" hidden>
-    <p>Avevi già l'app su un'altra icona? Porta qui i tuoi movimenti.</p>
+    <p>Hai già l'app su un'altra icona?</p>
     <button id="incollaTrasloco" class="tasto-primario" type="button">📥 Incolla</button>
   </div>
 
@@ -140,7 +140,7 @@
       </div>
     </div>
     <div id="autonomiaCorpo"></div>
-    <p id="autonomiaDettagli" class="tocca-dettagli">Tocca per vedere i conti e tutte le spese fisse ›</p>
+    <p id="autonomiaDettagli" class="tocca-dettagli">Dettagli ›</p>
   </section>
 
   <section id="sezCategorie" class="carta sezione" aria-labelledby="titoloCategorie">

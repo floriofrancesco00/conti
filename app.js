@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.18-2237';
+  const VERSIONE = '2026.11.19-1306';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -288,7 +288,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = '🎛️ Suoni del creatore nel menù (solo tuoi), e i santi presi anche dai calendari di una volta';
+  const NOVITA = 'suoni sistemati: uno alla volta e mai più bloccati; scritte più corte e pulite';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -576,7 +576,7 @@
           () => scegliConto({ tipo: 'spostamento', da: contoDi(corrente), verso: null, prima }, alScegliere, true));
         b.id = 'diventaSpostamento';
         b.style.marginTop = '14px';
-        b.appendChild(el('small', '', 'Prelievo al bancomat, versamento in banca, cripto comprate o vendute: non conta né come entrata né come uscita.'));
+        b.appendChild(el('small', '', 'Né entrata né uscita: prelievi, versamenti, cripto.'));
         corpo.appendChild(b);
         return;
       }
@@ -586,7 +586,7 @@
       corpo.appendChild(fila(da, id => scegliConto(Object.assign({}, qui, id === verso ? { da: id, verso: da } : { da: id }), alScegliere, true), 'spostaDa'));
       corpo.appendChild(el('div', 'titoletto', 'A'));
       corpo.appendChild(fila(verso, id => scegliConto(Object.assign({}, qui, id === da ? { da: verso, verso: id } : { verso: id }), alScegliere, true), 'spostaVerso'));
-      corpo.appendChild(el('p', 'nota', 'Toglie da ' + nomeConto(da) + ' e aggiunge a ' + nomeConto(verso) + '. Non conta né come entrata né come uscita: i soldi restano tuoi, cambiano posto.'));
+      corpo.appendChild(el('p', 'nota', 'Da ' + nomeConto(da) + ' a ' + nomeConto(verso) + '. Né entrata né uscita.'));
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-secondario', 'Non è uno spostamento', () => { chiudiFoglio(); alScegliere({ tipo: prima, conto: da }); }));
       const fatto = tasto('tasto-primario', 'Fatto', () => { chiudiFoglio(); alScegliere({ tipo: 'spostamento', da, verso }); });
@@ -622,7 +622,7 @@
       const ang = tasto('tasto-piccolo angolo', inModifica ? 'Fatto' : '✎ Modifica', () => scegliCategoria(tipo, corrente, alScegliere, !inModifica));
       ang.id = 'modificaCategorie';
       corpo.appendChild(ang);
-      if (inModifica) corpo.appendChild(el('p', 'nota-su', 'Tocca una categoria per cambiarle nome o simbolo, nasconderla o eliminarla.'));
+      if (inModifica) corpo.appendChild(el('p', 'nota-su', 'Tocca per modificare.'));
       const g = el('div', 'griglia' + (inModifica ? ' in-modifica' : ''));
       for (const c of categorie(tipo, inModifica)) {
         const b = el('button', 'opzione' + (c.nascosta ? ' spenta' : ''), c.icona + '  ' + c.nome);
@@ -639,7 +639,6 @@
       g.appendChild(tasto('opzione larga tratteggiata', '＋  Nuova categoria', () => formCategoria(tipo, null, {
         alSalvare: inModifica ? null : nome => alScegliere(nome), alTornare: inModifica ? torna(true) : null })));
       corpo.appendChild(g);
-      if (!inModifica) corpo.appendChild(el('p', 'nota', 'Quando correggi una categoria, la prossima volta che usi le stesse parole la propongo io. Per cambiarle nome tocca «✎ Modifica» o tienila premuta.'));
     });
   }
   // I giorni del mese (1-31) da toccare, per le spese ricorrenti
@@ -658,11 +657,8 @@
   // Testo sotto la griglia: cosa succede questo mese
   function notaRicorrente(giorno, inizio) {
     const ora = oggi();
-    if (inizio === 'prossimo') return 'Questo mese no: il primo sarà il ' + giorno + ' ' + MESI[(ora.getMonth() + 1) % 12] + ', poi ogni mese da solo.';
-    const passato = giorno < ora.getDate();
-    return 'Si segna da solo ogni ' + giorno + ' del mese e conta in quel mese, dal 1° all\'ultimo giorno. ' + (passato
-      ? 'Il ' + giorno + ' di questo mese è già passato: lo conto come già pagato (se l\'avevi già segnato a mano, scegli «Dal prossimo»).'
-      : 'Finché non arriva il ' + giorno + ' lo vedi «in arrivo».') + ' Lo trovi in Menù → Movimenti fissi.';
+    if (inizio === 'prossimo') return 'Dal ' + giorno + ' ' + MESI[(ora.getMonth() + 1) % 12] + '.';
+    return giorno < ora.getDate() ? 'Questo mese conta già come pagato.' : 'Fino al ' + giorno + ' è «in arrivo».';
   }
 
   // «ripeti» (facoltativo) per la spesa ricorrente: { acceso, giorno, inizio: 'questo' | 'prossimo', senzaInizio,
@@ -703,7 +699,7 @@
             corpo.appendChild(seg2);
             corpo.appendChild(el('p', 'nota', notaRicorrente(r.giorno, r.inizio)));
           } else {
-            corpo.appendChild(el('p', 'nota', 'Questo movimento resta com\'è; dal mese prossimo si segna da solo ogni ' + r.giorno + ' del mese. Lo trovi in Menù → Movimenti fissi.'));
+            corpo.appendChild(el('p', 'nota', 'Dal mese prossimo, ogni ' + r.giorno + '.'));
           }
           const riga = el('div', 'riga-tasti');
           const fatto = tasto('tasto-primario', 'Fatto', () => { chiudiFoglio(); if (ripeti.alFatto) ripeti.alFatto(); else alScegliere(corrente); });
@@ -712,7 +708,6 @@
           corpo.appendChild(riga);
           return;
         }
-        corpo.appendChild(el('p', 'nota-su', 'Per le uscite stabili (affitto, abbonamenti, palestra) scegli «Ogni mese»: tocchi il giorno del mese e si segnano da sole.'));
       }
       const g = el('div', 'griglia');
       g.style.marginTop = ripeti ? '12px' : '0';
@@ -752,7 +747,7 @@
       $('anteprima').hidden = true;
       // le solite spese al posto del suggerimento; il suggerimento solo all'inizio, finché i movimenti sono pochi
       const solite = disegnaScorciatoie();
-      $('suggerimento').hidden = solite > 0 || stato.movimenti.length >= 30;
+      $('suggerimento').hidden = true;   // dal 19/11/2026 niente suggerimento: basta la scritta nel riquadro
       return;
     }
     $('scorciatoie').hidden = true;
@@ -882,7 +877,7 @@
     }
     if (senzaImporto.length) {
       avviso.hidden = false;
-      avviso.textContent = multi ? 'Manca l\'importo in «' + senzaImporto[0].descrizione + '».' : 'Manca l\'importo: aggiungilo alla frase, es. «pizza 12».';
+      avviso.textContent = multi ? 'Manca l\'importo in «' + senzaImporto[0].descrizione + '».' : 'Manca l\'importo.';
     } else if (futuri.length) {
       avviso.hidden = false;
       avviso.textContent = 'La data è nel futuro: controllala.';
@@ -1078,7 +1073,6 @@
 
   function apriFissi() {
     apriFoglio('Movimenti fissi', corpo => {
-      corpo.appendChild(el('p', '', 'Abbonamenti, affitto, palestra, telefono, PAC: li imposti una volta col giorno del mese e si segnano da soli. Contano nel loro mese dal 1° all\'ultimo giorno: finché il giorno non arriva li vedi «in arrivo». Se un mese non c\'è, cancella quel movimento: non torna.'));
       const t = totaleFissi();
       const somma = [t.uscite ? 'uscite ' + euro(t.uscite) : '', t.entrate ? 'entrate ' + euro(t.entrate) : ''].filter(Boolean);
       if (somma.length) corpo.appendChild(el('p', 'riassunto', 'Al mese: ' + somma.join(' · ')));
@@ -1097,7 +1091,7 @@
         b.addEventListener('click', () => apriFisso(r));
         lista.appendChild(b);
       }
-      if (!ordinati.length) lista.appendChild(el('p', 'vuoto', 'Nessuno ancora. Puoi anche dirlo nella frase («spotify 10,99 ogni 18 del mese»), scegliere «🔁 Ogni mese» toccando il giorno quando segni una spesa, o aprire un movimento già segnato e toccare «Ripeti ogni mese».'));
+      if (!ordinati.length) lista.appendChild(el('p', 'vuoto', 'Nessuno.'));
       corpo.appendChild(lista);
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-primario', '＋ Aggiungi', () => apriFisso(null)));
@@ -1116,7 +1110,7 @@
     let quando = 'questo';
     const disegnaForm = () => apriFoglio(nuovo ? 'Nuovo movimento fisso' : 'Movimento fisso', corpo => {
       const inDesc = inputTesto(b.descrizione);
-      inDesc.placeholder = 'es. Netflix, PAC S&P 500, palestra';
+      inDesc.placeholder = 'Nome';
       inDesc.addEventListener('input', () => {
         if (sceltaMano) return;
         const r = A.analizza(inDesc.value, opzioniAnalisi());
@@ -1353,15 +1347,15 @@
     const fissi = stato.ricorrenti.filter(r => r.attivo && spesaVera(r)).reduce((a, r) => a + r.importo, 0);
     let mesi = null, spiegazione;
     if (sa === null) {
-      spiegazione = 'Per calcolarli servono i saldi dei contanti o del digitale: le cripto non contano.';
+      spiegazione = 'Servono i saldi di contanti o digitale.';
     } else if (sm && sm.media > 0) {
       mesi = spendibili / sm.media;
-      spiegazione = 'senza entrate, con contanti e digitale e le spese medie ' + (sm.mesi === 1 ? 'dell\'ultimo mese' : 'degli ultimi ' + sm.mesi + ' mesi') + ' (' + euro(sm.media) + ' al mese, investimenti esclusi). Le cripto non contano.';
+      spiegazione = 'Senza entrate, spendendo ' + euro(sm.media) + ' al mese.';
     } else if (fissi > 0) {
       mesi = spendibili / fissi;
-      spiegazione = 'senza entrate, con contanti e digitale e solo le spese fisse (' + euro(fissi) + ' al mese, investimenti esclusi): il conto vero arriva dopo il primo mese intero.';
+      spiegazione = 'Senza entrate, con le sole spese fisse (' + euro(fissi) + ' al mese).';
     } else {
-      spiegazione = 'Per calcolarli servono le spese di un mese intero, oppure i movimenti fissi.';
+      spiegazione = 'Servono un mese di spese o i movimenti fissi.';
     }
     return { saldi, sa, ft, tasse, spendibili, sm, fissi, mesi, spiegazione };
   }
@@ -1377,7 +1371,7 @@
     $('modSaldo').hidden = !qualcuno;
     $('modSaldo').textContent = 'Correggi saldi';
     if (!qualcuno) {
-      corpo.appendChild(el('p', 'aut-testo', 'Quanto hai in contanti, sui conti e in cripto? Inseriscilo una volta: l\'app lo tiene aggiornato con i movimenti e ti dice quanti mesi reggi senza entrate.'));
+      corpo.appendChild(el('p', 'aut-testo', 'Inserisci i saldi per sapere quanti mesi reggi senza entrate.'));
       const r = el('div', 'riga-tasti');
       r.appendChild(tasto('tasto-secondario', 'Inserisci i saldi', () => apriSaldo()));
       corpo.appendChild(r);
@@ -1394,9 +1388,7 @@
     }
     rigaSaldo(righe, nomeConto('cripto') + ' · non conta', saldi.cripto !== null ? saldoEuro(saldi.cripto) : 'da inserire', () => apriSaldo('cripto'));
     corpo.appendChild(righe);
-    corpo.appendChild(el('p', stato.saldi.daDividere ? 'avviso' : 'nota', stato.saldi.daDividere
-      ? 'Il saldo che avevi inserito era conti e contanti insieme: ora sta in 💳 Digitale. Correggilo e inserisci a parte i contanti.'
-      : 'I saldi si aggiornano coi movimenti e gli spostamenti che segni: ricontrollali ogni tanto coi conti veri.'));
+    if (stato.saldi.daDividere) corpo.appendChild(el('p', 'avviso', 'Il saldo vecchio (conti e contanti insieme) è in Digitale: separa i contanti.'));
   }
 
   // Guardando un conto solo: il suo saldo di oggi
@@ -1405,28 +1397,26 @@
     const v = saldoAttuale(c);
     $('modSaldo').hidden = v === null;
     $('modSaldo').textContent = 'Correggi saldo';
-    const cosa = { contanti: 'Quelli che hai in tasca e a casa.', digitale: 'Conti correnti e carte.',
-      cripto: 'In euro: quello che ci hai messo meno quello che hai tolto, non il valore di oggi. Non conta nei mesi di autonomia.' }[c];
+    const cosa = c === 'cripto' ? 'Non conta nei mesi di autonomia.' : '';
     if (v === null) {
-      corpo.appendChild(el('p', 'aut-testo', 'Quanto hai ' + inConto(c) + ' adesso? Inseriscilo una volta: l\'app lo aggiorna coi movimenti ' + inConto(c) + ' e con gli spostamenti. ' + cosa));
+      corpo.appendChild(el('p', 'aut-testo', 'Inserisci il saldo ' + inConto(c) + '.'));
       const r = el('div', 'riga-tasti');
       r.appendChild(tasto('tasto-secondario', 'Inserisci il saldo', () => apriSaldo(c)));
       corpo.appendChild(r);
       return;
     }
     corpo.appendChild(el('p', 'aut-mesi', saldoEuro(v)));
-    corpo.appendChild(el('p', 'aut-testo', cosa + ' Aggiornato coi movimenti e gli spostamenti che segni.'));
+    if (cosa) corpo.appendChild(el('p', 'aut-testo', cosa));
     const s = stato.saldi[c];
-    corpo.appendChild(el('p', 'nota', 'Saldo inserito ' + etichettaGiorno(s.data).toLowerCase() + ': ' + saldoEuro(s.importo) + '. Ricontrollalo ogni tanto.'));
+    corpo.appendChild(el('p', 'nota', 'Inserito ' + etichettaGiorno(s.data).toLowerCase() + ': ' + saldoEuro(s.importo)));
   }
 
   // I saldi: tutti e tre insieme, o uno solo («solo»). Un campo non toccato tiene il saldo di prima, con la sua data.
   function apriSaldo(solo) {
     const quali = solo ? [infoConto(solo)] : A.CONTI;
     apriFoglio(solo ? 'Saldo ' + inConto(solo) : 'Saldi dei conti', corpo => {
-      corpo.appendChild(el('p', '', solo ? 'Quanto hai adesso ' + inConto(solo) + '. Da qui in poi l\'app lo aggiorna coi movimenti e gli spostamenti che segni.'
-        : 'Quanto hai adesso in ciascun conto. Da qui in poi l\'app li aggiorna coi movimenti e gli spostamenti che segni. Quello che non usi lascialo vuoto.'));
-      if (stato.saldi.daDividere && solo !== 'cripto') corpo.appendChild(el('p', 'avviso', 'Prima c\'era un saldo solo, conti e contanti insieme: adesso è in Digitale. Togli da lì i contanti e scrivili nel loro conto.'));
+      if (!solo) corpo.appendChild(el('p', '', 'Quanto hai adesso. Lascia vuoto quello che non usi.'));
+      if (stato.saldi.daDividere && solo !== 'cripto') corpo.appendChild(el('p', 'avviso', 'Il saldo vecchio (conti e contanti insieme) è in Digitale: separa i contanti.'));
       const campi = [];
       for (const c of quali) {
         const sa = saldoAttuale(c.id);
@@ -1434,10 +1424,9 @@
         inp.placeholder = '0,00';
         inp.id = 'saldo' + maiuscola(c.id);
         corpo.appendChild(campo(c.icona + ' ' + c.nome + ' oggi, in euro', inp));
-        if (c.id === 'cripto') corpo.appendChild(el('p', 'nota-campo', 'Quanto valgono oggi in euro. Poi l\'app aggiunge e toglie quello che sposti e spendi, non segue il prezzo. Non conta nei mesi di autonomia.'));
+        if (c.id === 'cripto') corpo.appendChild(el('p', 'nota-campo', 'In euro, al valore di oggi. Non conta nei mesi di autonomia.'));
         campi.push([c.id, inp, sa]);
       }
-      corpo.appendChild(el('p', 'nota', 'Le spese che non segni li fanno scostare dai conti veri: ogni tanto ricontrollali e correggili qui.'));
       const riga = el('div', 'riga-tasti');
       if (solo && stato.saldi[solo]) riga.appendChild(tasto('tasto-secondario', 'Togli', () => {
         stato.saldi[solo] = null; scrivi(); chiudiFoglio(); disegna();
@@ -1467,13 +1456,12 @@
   function apriTasse() {
     const t = stato.tasse;
     apriFoglio('Tasse da accantonare', corpo => {
-      corpo.appendChild(el('p', '', 'Per ogni entrata delle categorie scelte l\'app mette da parte una percentuale e te la toglie dai soldi spendibili. Le uscite in «' + nomeDaBase('uscita', 'Tasse e commercialista') + '» la consumano.'));
+      corpo.appendChild(el('p', '', 'Una parte delle entrate scelte resta da parte. Le uscite in «' + nomeDaBase('uscita', 'Tasse e commercialista') + '» la consumano.'));
       const on = interruttore('Accantona per le tasse', t.attiva);
       corpo.appendChild(on.etichetta);
       const inP = inputTesto(t.percentuale ? String(t.percentuale).replace('.', ',') : '', 'decimal');
-      inP.placeholder = 'es. 25';
+      inP.placeholder = '%';
       corpo.appendChild(campo('Percentuale da mettere da parte', inP));
-      corpo.appendChild(el('p', 'nota', 'La percentuale giusta decidila con il commercialista: dipende dal regime e dai contributi.'));
       corpo.appendChild(el('div', 'titoletto', 'Su quali entrate'));
       const scelteCat = t.categorie.length ? t.categorie : [nomeDaBase('entrata', 'Provvigioni')];
       const caselle = [];
@@ -1597,7 +1585,7 @@
       const inp = inputTesto(esistente ? esistente.nome : '');
       inp.id = 'nomeCategoria';
       inp.maxLength = 28;
-      inp.placeholder = 'es. Scherma, Patente nautica';
+      inp.placeholder = 'Nome';
       corpo.appendChild(campo('Nome', inp));
       corpo.appendChild(el('div', 'titoletto', 'Simbolo'));
       const g = el('div', 'griglia-emoji');
@@ -1608,13 +1596,13 @@
       corpo.appendChild(g);
       segna();
       libero.maxLength = 8;
-      libero.placeholder = 'o scrivine una tua, per esempio 🥷';
+      libero.placeholder = 'Un\'altra emoji';
       libero.addEventListener('input', () => { const s = primoSimbolo(libero.value); if (s) { icona = s; segna(); } });
       corpo.appendChild(campo('Un\'altra emoji', libero));
       const ripiego = esistente && esistente.ripiego;
       let casNascosta = null;
       if (esistente && !ripiego) {
-        casNascosta = interruttore('Nascosta: non la propongo più (i movimenti restano)', esistente.nascosta);
+        casNascosta = interruttore('Nascosta', esistente.nascosta);
         corpo.appendChild(casNascosta.etichetta);
       }
       const riga = el('div', 'riga-tasti');
@@ -1656,7 +1644,7 @@
         seg.appendChild(b);
       });
       corpo.appendChild(seg);
-      corpo.appendChild(el('p', 'nota-su', 'Tocca una categoria per cambiarle nome o simbolo, nasconderla o eliminarla.'));
+      corpo.appendChild(el('p', 'nota-su', 'Tocca per modificare.'));
       const lista = el('div', 'elenco-righe');
       for (const c of categorie(tipoCategorie, true)) {
         const r = el('button', 'cat-riga' + (c.nascosta ? ' nascosta' : ''));
@@ -1673,7 +1661,6 @@
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-primario', '＋ Aggiungi categoria', () => formCategoria(tipoCategorie, null, { alTornare: () => apriCategorie() })));
       corpo.appendChild(riga);
-      corpo.appendChild(el('p', 'nota', 'Le categorie nascoste non si propongono più, ma i movimenti vecchi restano dove sono. Rinominando, cambiano anche i movimenti già segnati. Eliminando, i movimenti passano in «Altro».'));
     });
   }
 
@@ -1784,16 +1771,17 @@
     const t = totali(lista, conto);
     $('heroEtichetta').textContent = (vista.modo === 'anno' ? 'Saldo del ' + vista.anno : 'Saldo di ' + MESI[vista.mese]) + (conto ? ' ' + inConto(conto) : '');
     $('heroValore').textContent = saldoConSegno(t.saldo);
-    let sotto = conto && (t.arrivati || t.partiti) ? 'Entrate meno uscite, più gli spostamenti.' : 'Entrate meno uscite.';
-    if (t.tasse > 0) sotto += ' Tolti ' + euro(t.tasse) + ' per le tasse, restano ' + saldoEuro(t.restano) + '.';
+    let sotto = '';
+    if (t.tasse > 0) sotto += ' Tasse da parte ' + euro(t.tasse) + ', restano ' + saldoEuro(t.restano) + '.';
     // i fissi del mese che devono ancora arrivare contano già (dal 10/11/2026): lo si dice
     const oggiIso = isoOggi(), futuri = lista.filter(m => m.data > oggiIso && !eSpostamento(m) && tocca(m, conto));
     if (futuri.length) {
       const u = futuri.filter(m => m.tipo === 'uscita').reduce((a, m) => a + m.importo, 0);
       const e = futuri.filter(m => m.tipo === 'entrata').reduce((a, m) => a + m.importo, 0);
-      sotto += ' Compresi in arrivo: ' + [u ? 'uscite ' + euro(u) : '', e ? 'entrate ' + euro(e) : ''].filter(Boolean).join(', ') + '.';
+      sotto += ' Di cui in arrivo: ' + [u ? 'uscite ' + euro(u) : '', e ? 'entrate ' + euro(e) : ''].filter(Boolean).join(', ') + '.';
     }
-    $('heroSotto').textContent = sotto;
+    $('heroSotto').textContent = sotto.trim();
+    $('heroSotto').hidden = !sotto.trim();
     $('totEntrate').textContent = euro(t.entrate);
     $('totUscite').textContent = euro(t.uscite);
     disegnaConfronto(conto);
@@ -1988,11 +1976,11 @@
     const bt = $('tuttiMovimenti');
     bt.hidden = !stato.movimenti.length;
     bt.querySelector('small').textContent = fatti.length > ULTIMI
-      ? 'Qui gli ultimi ' + ULTIMI + ' di ' + fatti.length + '. Tutti, anche degli anni passati, e quanto hai speso dal… al…'
-      : 'Tutti, anche degli anni passati, e quanto hai speso dal… al…';
+      ? ULTIMI + ' di ' + fatti.length
+      : '';
     if (!mostrati.length) {
       cont.appendChild(el('p', 'vuoto', stato.movimenti.length ? 'Nessun movimento' + (vista.conto ? ' ' + inConto(vista.conto) : '') + ' in questo periodo.'
-        : 'Ancora nessun movimento. Scrivi o detta la prima spesa qui sopra, per esempio «caffè 1,20».'));
+        : 'Ancora nessun movimento.'));
       if (!stato.movimenti.length) {   // un'icona nuova: i dati della vecchia arrivano dagli appunti
         const b = tasto('tasto-secondario', '📥 Incolla dalla vecchia icona', incollaDallaVecchia);
         b.id = 'incollaTraslocoLista';
@@ -2027,7 +2015,7 @@
     if (conto === undefined) conto = vista.conto;
     let sotto = spost ? etichettaConto(m) : m.categoria + (conto ? '' : ' · ' + infoConto(contoDi(m)).icona);
     const acc = accantonamento(m);
-    if (acc) sotto += ' · ' + euro(acc) + ' per le tasse';
+    if (acc) sotto += ' · tasse ' + euro(acc);
     if (m.ricorrente) sotto += ' · fisso';
     if (m.data > isoOggi()) { b.classList.add('in-arrivo'); sotto += ' · in arrivo'; }
     testi.appendChild(el('span', 'mov-cat', sotto));
@@ -2400,7 +2388,7 @@
         const t = totali(lista);
         riassunto.textContent = lista.length ? lista.length + (lista.length === 1 ? ' movimento' : ' movimenti') + ' · entrate ' + euro(t.entrate) + ' · uscite ' + euro(t.uscite)
           : 'Nessun movimento in questo periodo.';
-        notaAI.textContent = scelta === 'tutto' ? ED.testoCopia : 'Per la copia di sicurezza completa scegli «Tutto».';
+        notaAI.textContent = scelta === 'tutto' ? ED.testoCopia : 'Per la copia completa: «Tutto».';
       };
 
       const azioni = el('div', 'elenco-azioni');
@@ -2423,7 +2411,7 @@
         chiudiFoglio(); mostraToast('Copiato: incollalo in una chat o in una nota');
       });
       bLegg.id = 'copiaLeggibile';
-      bLegg.appendChild(el('small', '', 'Un riassunto semplice da leggere: totali, categorie e movimenti giorno per giorno.'));
+      bLegg.appendChild(el('small', '', 'Un riassunto da leggere.'));
       azioni.appendChild(bLegg);
       if (navigator.share) {
         const bCond = tasto('azione', '📤 Condividi…', async () => {
@@ -2436,7 +2424,7 @@
           }
         });
         bCond.id = 'condividi';
-        bCond.appendChild(el('small', '', 'Lo stesso riassunto, da mandare a te stesso o a qualcuno con WhatsApp o Mail, o da salvare in Note.'));
+        bCond.appendChild(el('small', '', 'Il riassunto, con WhatsApp, Mail o Note.'));
         azioni.appendChild(bCond);
       }
       corpo.appendChild(azioni);
@@ -2453,12 +2441,12 @@
       const imp = el('div', 'elenco-azioni');
       const voce = (titolo, sotto, alClic) => { const b = tasto('azione', titolo, alClic); b.appendChild(el('small', '', sotto)); imp.appendChild(b); return b; };
       const tf = totaleFissi(), nf = stato.ricorrenti.length;
-      voce('🔁 Movimenti fissi', nf ? nf + (nf === 1 ? ' impostato' : ' impostati') + (tf.uscite ? ' · uscite ' + euro(tf.uscite) + ' al mese' : '') : 'Affitto, abbonamenti, PAC, palestra: si segnano da soli ogni mese.', apriFissi);
+      voce('🔁 Movimenti fissi', nf ? nf + (nf === 1 ? ' impostato' : ' impostati') + (tf.uscite ? ' · uscite ' + euro(tf.uscite) + ' al mese' : '') : 'Si segnano da soli ogni mese.', apriFissi);
       const saldi = A.CONTI.map(c => [c, saldoAttuale(c.id)]).filter(([, v]) => v !== null);
       voce('🏦 Saldi dei conti', saldi.length ? (saldoVisibile ? saldi.map(([c, v]) => c.icona + ' ' + euro(v)).join(' · ') : 'Nascosti dall\'occhio') + ' · tocca per correggerli'
-        : 'Contanti, digitale e cripto: per sapere quanti mesi reggi senza entrate.', () => apriSaldo());
+        : 'Contanti, digitale, cripto.', () => apriSaldo());
       voce('🧾 Tasse da accantonare', stato.tasse.attiva ? String(stato.tasse.percentuale).replace('.', ',') + '% di ' + (stato.tasse.categorie.join(', ') || 'nessuna categoria') : 'Spento', apriTasse);
-      voce('🏷️ Categorie', 'Aggiungi, rinomina, cambia simbolo, nascondi o elimina.', apriCategorie);
+      voce('🏷️ Categorie', 'Nomi e simboli.', apriCategorie);
       voce('🎙️ Microfono', descriviVoce(), apriImpostazioniVoce);
       if (F) {
         const pr = F.prossime(oggi(), 1, pref.compleanno)[0];
@@ -2469,24 +2457,24 @@
         voce('🔊 Suoni', 'Sigla: ' + nomeDi(S.SIGLE, suonoSigla()) + ' · saldo: ' + nomeDi(S.SALDO, suonoSaldo())
           + (suoniMovimenti() ? ' · cassa e monete quando salvi' : ' · movimenti in silenzio'), apriSuoni).id = 'voceSuoni';
         // solo nell'edizione di Francesco, per sempre (sua richiesta del 18/11/2026): mai in quelle degli amici
-        if (ED.nome === 'principale') voce('🎛️ Suoni del creatore', 'Tutti i suoni dell\'app, da suonare quando vuoi', apriCreatore).id = 'voceCreatore';
+        if (ED.nome === 'principale') voce('🎛️ Suoni del creatore', 'Tutti i suoni', apriCreatore).id = 'voceCreatore';
       }
       corpo.appendChild(imp);
 
       corpo.appendChild(el('div', 'titoletto', 'I tuoi movimenti'));
       const n = stato.movimenti.length;
-      corpo.appendChild(el('p', '', n + (n === 1 ? ' movimento' : ' movimenti') + ' salvati su questo telefono. ' + testoUltimoBackup()
-        + ' Memoria usata: ' + percento(spazioUsato(), 1) + '.'));
+      corpo.appendChild(el('p', '', n + (n === 1 ? ' movimento' : ' movimenti') + '. ' + testoUltimoBackup()
+        + ' Memoria usata ' + percento(spazioUsato(), 1) + '.'));
       const azioni = el('div', 'elenco-azioni');
       azioni.style.marginTop = '10px';
       corpo.appendChild(azioni);
 
       const bEsp = tasto('azione', '📤 Esporta e condividi', () => apriEsporta('mese'));
-      bEsp.appendChild(el('small', '', 'Scegli il periodo, poi «Copia per l\'AI», «Copia da condividere» o «Condividi».'));
+      bEsp.appendChild(el('small', '', 'Copia o condividi un periodo.'));
       azioni.appendChild(bEsp);
 
       const bImp = tasto('azione', '📥 Importa da testo', () => apriImporta());
-      bImp.appendChild(el('small', '', 'Incolla una «Copia per l\'AI»: i movimenti già presenti non si doppiano.'));
+      bImp.appendChild(el('small', '', 'Da una copia esportata.'));
       azioni.appendChild(bImp);
 
       // fatto da Francesco l'11/11/2026: nella sua edizione non serve più (resta per quelle degli amici, ancora vecchie)
@@ -2500,10 +2488,10 @@
       const bZero = tasto('azione', '🧨 Ricomincia da zero', () => ricomincia());
       bZero.style.color = 'var(--critico)';
       bZero.disabled = !n;
-      bZero.appendChild(el('small', '', 'Cancella i movimenti, per esempio quelli di prova: tutti, tutti tranne Cripto e spese ricorrenti, o i conti che scegli. Impostazioni e parole imparate restano.'));
+      bZero.appendChild(el('small', '', 'Cancella i movimenti.'));
       azioni.appendChild(bZero);
 
-      corpo.appendChild(el('p', 'nota', 'I movimenti esistono solo dentro questa app sul telefono. Se cancelli l\'icona dalla schermata Home o i dati del sito, spariscono: esporta ogni tanto.'));
+      corpo.appendChild(el('p', 'nota', 'I dati sono solo su questo telefono: esporta ogni tanto.'));
       const crediti = tasto('tasto-secondario', 'Crediti di foto e suoni', apriCrediti);
       crediti.style.marginTop = '12px';
       corpo.appendChild(crediti);
@@ -2581,10 +2569,10 @@
 
   function apriImporta() {
     apriFoglio('Importa movimenti', corpo => {
-      corpo.appendChild(el('p', '', 'Incolla qui il testo di una «Copia per l\'AI» (anche di una versione vecchia dell\'app).'));
+      corpo.appendChild(el('p', '', 'Incolla una copia esportata.'));
       const ta = el('textarea');
       ta.id = 'testoImporta';
-      ta.placeholder = 'data;tipo;importo;categoria;descrizione;id';
+      ta.placeholder = 'Incolla qui';
       const c = el('label', 'campo');
       c.appendChild(ta);
       corpo.appendChild(c);
@@ -2601,9 +2589,9 @@
   }
 
   function testoUltimoBackup() {
-    if (!stato.ultimoBackup) return 'Non li hai mai esportati.';
+    if (!stato.ultimoBackup) return 'Mai esportati.';
     const giorni = Math.floor((Date.now() - new Date(stato.ultimoBackup)) / GIORNO_MS);
-    return 'Ultima esportazione: ' + (giorni === 0 ? 'oggi' : giorni === 1 ? 'ieri' : giorni + ' giorni fa') + '.';
+    return 'Esportati ' + (giorni === 0 ? 'oggi' : giorni === 1 ? 'ieri' : giorni + ' giorni fa') + '.';
   }
 
   function disegnaBanner() {
@@ -2618,7 +2606,7 @@
     $('bannerBackup').hidden = !mostra;
     if (pieno) $('bannerTesto').textContent = 'La memoria dei movimenti è al ' + percento(spazioUsato(), 1) + ': esporta e ' +
       (ED.nome === 'principale' ? 'dillo a Claude, che li sposta' : 'chiedi a chi ti ha dato l\'app di spostarli') + ' in una memoria più grande prima che si riempia.';
-    else if (mostra) $('bannerTesto').textContent = 'I movimenti stanno solo su questo telefono. ' + testoUltimoBackup();
+    else if (mostra) $('bannerTesto').textContent = 'Fai una copia dei movimenti. ' + testoUltimoBackup();
   }
 
   // ================================================================ ricominciare e fine delle prove
@@ -2645,13 +2633,12 @@
     const n = stato.movimenti.length;
     const scelta = { conti: CONTI_ID.slice(), tieniFissi: false };
     apriFoglio('Ricomincia da zero', corpo => {
-      corpo.appendChild(el('p', '', 'Cosa cancello? Restano sempre le impostazioni (movimenti fissi, saldi, categorie, tasse), le parole che l\'app ha imparato e lo sfondo.'));
+      corpo.appendChild(el('p', '', 'Impostazioni e categorie restano.'));
       const kp = stato.movimenti.filter(daCancellare(TRANNE_CRIPTO)).length;
       const pre = tasto('azione', '🧹 Tutto tranne Cripto e spese ricorrenti', () => ricominciaConferma(TRANNE_CRIPTO, kp));
       pre.id = 'cancellaTranneCripto';
       pre.disabled = !kp;
-      pre.appendChild(el('small', '', kp ? 'Cancello ' + movimenti_(kp) + ' in contanti e digitale. Restano quelli in cripto, gli spostamenti da e verso Cripto e le spese ricorrenti.'
-        : 'Non c\'è niente da cancellare: sono tutti in cripto o spese ricorrenti.'));
+      pre.appendChild(el('small', '', kp ? movimenti_(kp) + ' in contanti e digitale.' : 'Niente da cancellare.'));
       pre.style.marginTop = '12px';
       corpo.appendChild(pre);
       corpo.appendChild(el('div', 'titoletto', 'Oppure scegli tu quali conti'));
@@ -2665,7 +2652,7 @@
       const fissi = interruttore('🔁 Tieni le spese ricorrenti', false);
       fissi.casella.id = 'tieniRicorrenti';
       corpo.appendChild(fissi.etichetta);
-      corpo.appendChild(el('p', 'nota', 'Uno spostamento si cancella solo se cancelli tutti e due i suoi conti: «comprato bitcoin» resta se tieni Cripto. Se vuoi tenerne una copia, prima fai «Copia per l\'AI» con «Tutto».'));
+      corpo.appendChild(el('p', 'nota', 'Uno spostamento resta se tieni uno dei suoi conti.'));
       const copia = tasto('tasto-secondario', '🤖 Prima fai una copia', () => apriEsporta('tutto'));
       copia.style.marginTop = '12px';
       corpo.appendChild(copia);
@@ -2698,7 +2685,7 @@
       const elenco = dove.length > 1 ? dove.slice(0, -1).join(', ') + ' e ' + dove[dove.length - 1] : dove.join('');
       corpo.appendChild(el('p', 'allarme', '🧨 Stai per cancellare ' + movimenti_(n) + (parte ? ' ' + elenco : '') + '.'));
       if (scelta.tieniFissi) corpo.appendChild(el('p', '', 'Le spese ricorrenti restano.'));
-      corpo.appendChild(el('p', '', 'Dopo qualche secondo non si torna più indietro: rimarrebbero solo le copie che hai esportato.'));
+      corpo.appendChild(el('p', '', 'Dopo qualche secondo non si torna indietro.'));
       const riga = el('div', 'riga-tasti colonna');
       riga.appendChild(tasto('tasto-pericolo pieno', 'Sì, cancella ' + movimenti_(n), () => cancella(daCancellare(scelta), 'Cancellati ' + movimenti_(n))));
       riga.appendChild(tasto('tasto-secondario', 'No, tienili', () => chiudiFoglio(true)));
@@ -2785,7 +2772,7 @@
   function apriCrediti() {
     const link = (li, url) => { const a = el('a', '', 'originale'); a.href = url; a.target = '_blank'; a.rel = 'noopener'; li.appendChild(a); };
     apriFoglio('Crediti di foto e suoni', corpo => {
-      corpo.appendChild(el('p', '', 'Foto «in vetrina» di Wikimedia Commons, ritagliate per il telefono. Le licenze libere chiedono di citare chi le ha scattate.'));
+      corpo.appendChild(el('p', '', 'Foto di Wikimedia Commons.'));
       const ul = el('ul', 'passi crediti');
       for (const s of sfondi) {
         const li = el('li');
@@ -2797,7 +2784,7 @@
       corpo.appendChild(ul);
       // i suoni (17/11/2026): tutti CC0, citarli non è obbligatorio ma è giusto
       corpo.appendChild(el('div', 'titoletto', 'Suoni'));
-      corpo.appendChild(el('p', '', 'Registrazioni di Freesound e Kenney con licenza CC0 (di tutti), tagliate e pareggiate di volume.'));
+      corpo.appendChild(el('p', '', 'Registrazioni di Freesound e Kenney, licenza CC0.'));
       const us = el('ul', 'passi crediti');
       us.id = 'creditiSuoni';
       corpo.appendChild(us);
@@ -2814,7 +2801,7 @@
         }
       };
       corpo.appendChild(el('div', 'titoletto', 'Santi del giorno'));
-      corpo.appendChild(el('p', '', 'Da Wikipedia in italiano (licenza CC BY-SA 4.0): il Calendario romano generale e, nei giorni senza una celebrazione ufficiale, la pagina del giorno.'));
+      corpo.appendChild(el('p', '', 'Da Wikipedia (CC BY-SA 4.0): il calendario di oggi, quello del 1954 e le pagine dei giorni.'));
       if (creditiSuoni) scrivi(creditiSuoni);
       else fetch('suoni/suoni.json').then(r => r.json()).then(l => { creditiSuoni = l; if (document.body.contains(us)) scrivi(l); }).catch(() => {});
     });
@@ -2860,9 +2847,9 @@
   const usaApple = () => !!(V && V.apple) && pref.voceMotore !== 'whisper' && pref.appleNo !== navigator.userAgent && !appleSaltaUnaVolta;
   const secondi = ms => (ms / 1000).toFixed(1).replace('.', ',') + ' s';
   function descriviVoce() {
-    if (usaApple()) return pref.appleSi ? 'Apple, come la dettatura: le parole arrivano mentre parli' : 'Apple, come la dettatura (si prova al primo tocco)';
+    if (usaApple()) return pref.appleSi ? 'Apple' : 'Apple';
     const m = modelloVoce();
-    if (!m) return 'Da scaricare una volta sola: poi funziona anche senza rete.';
+    if (!m) return 'Da scaricare una volta';
     const t = (pref.voceTempi || []).slice(-1)[0];
     return V.MODELLI[m].nome + (t ? ' · ultima trascrizione ' + secondi(t) : '') + (V.isolato ? ' · più motori insieme' : '');
   }
@@ -2908,17 +2895,11 @@
     return mie.concat([...conta.entries()].sort((a, b) => b[1] - a[1]).map(([p]) => p).filter(p => !mie.includes(p))).slice(0, 14);
   }
 
+  // il microfono non si può usare (negato o assente): solo il perché, poi si scrive (19/11/2026: niente più i passi
+  // della dettatura della tastiera, che lui non vuole)
   function guidaDettatura(motivo) {
-    apriFoglio('Dettare con la tastiera', corpo => {
+    apriFoglio('Microfono', corpo => {
       if (motivo) corpo.appendChild(el('p', '', motivo));
-      const ol = el('ol', 'passi');
-      ol.style.marginTop = '10px';
-      const passo = (forte, resto) => { const li = el('li'); li.appendChild(el('b', '', forte)); li.appendChild(document.createTextNode(resto)); ol.appendChild(li); };
-      passo('Tocca «Ho capito»', ': si apre la tastiera.');
-      passo('Tocca il microfono della tastiera', ', in basso a destra sotto i tasti.');
-      passo('Parla come in un vocale', ', per esempio «pizza dodici euro ieri», poi tocca Salva.');
-      passo('Se il microfono non c\'è', ': Impostazioni → Generali → Tastiera → attiva «Abilita dettatura».');
-      corpo.appendChild(ol);
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-primario', 'Ho capito', () => { chiudiFoglio(); campoFrase.focus(); }));
       corpo.appendChild(riga);
@@ -2930,10 +2911,9 @@
     const g = el('div', 'elenco-azioni');
     const s = scaricati(), attuale = modelloVoce();
     const testi = {
-      rapido: 'Come «Preciso», ma la parte pesante la fa la scheda grafica: sul PC tre volte più veloce. ' +
-        (pref.voceGpu === false && s.rapido ? 'Su questo telefono la scheda grafica non è partita: lavora col processore.' : 'Consigliato.'),
-      preciso: 'Sbaglia molto meno numeri e parole («43,20», «eToro»). Ci mette qualche secondo in più.' + (V.gpu ? '' : ' Consigliato.'),
-      veloce: 'Risponde prima, ma sbaglia più spesso («milleottocento» → 1880).'
+      rapido: pref.voceGpu === false && s.rapido ? 'Qui lavora col processore.' : 'Il più veloce. Consigliato.',
+      preciso: 'Sbaglia meno.' + (V.gpu ? '' : ' Consigliato.'),
+      veloce: 'Più rapido, sbaglia di più.'
     };
     const icone = { rapido: '🚀 ', preciso: '🎯 ', veloce: '⚡ ' };
     for (const k of (V.gpu ? ['rapido', 'preciso', 'veloce'] : ['preciso', 'veloce'])) {
@@ -2961,9 +2941,8 @@
     const vecchio = scaricati().veloce && !pref.voceModello;
     apriFoglio(vecchio ? 'Microfono nuovo' : 'Microfono', corpo => {
       corpo.appendChild(el('p', '', vecchio
-        ? 'Il microfono è rifatto: adesso c\'è anche il riconoscimento «Preciso», che sbaglia molto meno. Si scarica una volta sola, meglio col Wi-Fi.'
-        : 'Per capire la voce, l\'app scarica una volta sola il riconoscimento vocale, meglio col Wi-Fi.'));
-      corpo.appendChild(el('p', '', 'Poi funziona anche senza rete, e la tua voce non esce mai dal telefono: la trascrizione la fa il telefono stesso.'));
+        ? 'C\'è il riconoscimento «Preciso», che sbaglia meno.'
+        : 'Si scarica una volta, meglio col Wi-Fi. La voce resta sul telefono.'));
       // niente «Usa la tastiera» (tolto il 17/11/2026): la dettatura della tastiera lui non la vuole
       sceltaModelli(corpo, usaModello);
     });
@@ -2971,7 +2950,6 @@
 
   function apriImpostazioniVoce() {
     apriFoglio('Microfono', corpo => {
-      corpo.appendChild(el('p', '', 'Tocca 🎙️, parla, poi tocca ■ (o fai una pausa di 2 secondi).'));
       if (V.apple) {
         const g = el('div', 'elenco-azioni');
         const appleNo = pref.appleNo === navigator.userAgent;
@@ -2984,8 +2962,8 @@
         });
         bA.setAttribute('aria-pressed', String(!appleNo && pref.voceMotore !== 'whisper'));
         bA.appendChild(el('small', '', appleNo
-          ? 'L\'iPhone non lo lascia usare a questa app. Tocca per riprovare.'
-          : 'Le parole arrivano mentre parli e capisce bene l\'italiano. La voce la riconosce iOS, come con la dettatura.'));
+          ? 'Qui non va. Tocca per riprovare.'
+          : 'Le parole arrivano mentre parli.'));
         g.appendChild(bA);
         corpo.appendChild(g);
         corpo.appendChild(el('div', 'titoletto', 'Oppure Whisper, dentro il telefono'));
@@ -3076,7 +3054,7 @@
 
   function erroreMicrofono(e) {
     if (e && (e.name === 'NotAllowedError' || e.name === 'SecurityError')) {
-      guidaDettatura('Il permesso del microfono è negato. Sull\'iPhone: Impostazioni → Safari → Microfono → «Chiedi» o «Consenti», poi riapri l\'app. Intanto puoi dettare con la tastiera:');
+      guidaDettatura('Microfono negato: Impostazioni → Safari → Microfono → Consenti.');
     } else {
       mostraToast('Microfono non disponibile' + (e && e.message ? ': ' + e.message.slice(0, 50) : ''));
     }
@@ -3117,8 +3095,8 @@
       pref.appleSi = false;
       scriviPref();
       apriFoglio('Microfono', corpo => {
-        corpo.appendChild(el('p', '', 'Il riconoscimento vocale di Apple, quello della dettatura, l\'iPhone non lo lascia usare a questa app (' + (codice || 'errore') + '). Uso Whisper, che lavora dentro il telefono. Ci riprovo da solo quando aggiorni iOS.'));
-        corpo.appendChild(el('p', '', V.gpu ? 'Il più veloce è «Preciso veloce»: usa la scheda grafica del telefono.' : 'Scegli quale usare:'));
+        corpo.appendChild(el('p', '', 'Il riconoscimento di Apple qui non va (' + (codice || 'errore') + '): uso Whisper.'));
+        corpo.appendChild(el('p', '', V.gpu ? 'Consigliato: «Preciso veloce».' : ''));
         sceltaModelli(corpo, usaModello);
       });
       return;
@@ -3280,7 +3258,6 @@
   ];
   function apriCreatore() {
     apriFoglio('Suoni del creatore', corpo => {
-      corpo.appendChild(el('p', '', 'Tutti i suoni dell\'app. Tocca e senti. Questa tastiera c\'è solo nella tua app.'));
       const tutti = TAVOLA_SUONI.flatMap(([, l]) => l);
       const suona = (b, id) => {
         S.sblocca();
@@ -3308,13 +3285,12 @@
         }
         corpo.appendChild(g);
       }
-      corpo.appendChild(el('p', 'nota', 'Col silenzioso dell\'iPhone non si sentono. Da dove vengono: Menù → Crediti di foto e suoni.'));
+      corpo.appendChild(el('p', 'nota', 'Col silenzioso non si sentono.'));
     });
   }
 
   function apriSuoni() {
     apriFoglio('Suoni', corpo => {
-      corpo.appendChild(el('p', '', 'Registrazioni vere, non suoni finti: trombe, una cassa, monete, un colpo. Con l\'iPhone in silenzioso non suonano, e non fermano la musica.'));
       const gruppo = (titolo, lista, attuale, salva) => {
         corpo.appendChild(el('div', 'titoletto', titolo));
         const g = el('div', 'elenco-azioni');
@@ -3329,19 +3305,18 @@
           });
           b.dataset.suono = a.id;
           b.setAttribute('aria-pressed', String(a.id === attuale));
-          b.appendChild(el('small', '', a.sotto + (a.id !== 'nessuno' ? ' · tocca per sentirlo' : '')));
           g.appendChild(b);
         }
         corpo.appendChild(g);
       };
-      gruppo('La sigla, quando apri l\'app', S.SIGLE, suonoSigla(), id => { pref.suonoSigla = id; });
+      gruppo('Sigla', S.SIGLE, suonoSigla(), id => { pref.suonoSigla = id; });
       corpo.appendChild(el('p', 'nota-campo', pref.siglaSubito === true
-        ? 'Su questo iPhone la sigla parte appena apri l\'app.'
+        ? 'Parte appena apri l\'app.'
         : pref.siglaSubito === false
-          ? 'Questo iPhone non lascia suonare un\'app prima che la tocchi: la sigla parte al primo tocco (tranne sul microfono). Se il primo tocco è l\'occhio, prima la sigla e poi il saldo.'
-          : 'Se l\'iPhone non lascia suonare un\'app prima che la tocchi, la sigla parte al primo tocco.'));
-      gruppo('Quando mostri il saldo (l\'occhio)', S.SALDO, suonoSaldo(), id => { pref.suonoSaldo = id; });
-      corpo.appendChild(el('p', 'nota-campo', 'Su «Tutto» quello che scegli qui. Guardando un conto, il suo:'));
+          ? 'Parte al primo tocco.'
+          : 'Parte all\'apertura o al primo tocco.'));
+      gruppo('Saldo', S.SALDO, suonoSaldo(), id => { pref.suonoSaldo = id; });
+      corpo.appendChild(el('p', 'nota-campo', 'Sui singoli conti:'));
       const pc = el('div', 'chips');
       pc.style.marginTop = '8px';
       for (const [c, cosa] of [['contanti', '💶 Banconote'], ['digitale', '💳 POS'], ['cripto', '🪙 Moneta digitale']]) {
@@ -3350,7 +3325,7 @@
         pc.appendChild(b);
       }
       corpo.appendChild(pc);
-      corpo.appendChild(el('div', 'titoletto', 'Quando salvi o cancelli'));
+      corpo.appendChild(el('div', 'titoletto', 'Movimenti'));
       const on = interruttore('Suoni dei movimenti', suoniMovimenti());
       on.casella.id = 'suoniMovimenti';
       on.casella.addEventListener('change', () => { pref.suoniMovimenti = on.casella.checked; scriviPref(); });
@@ -3361,6 +3336,7 @@
         prove.appendChild(tasto('chip senza-freccia', '▶ ' + cosa, () => { S.sblocca(); S.suona(nome); }));
       }
       corpo.appendChild(prove);
+      corpo.appendChild(el('p', 'nota', 'Col silenzioso non suonano.'));
       const cred = tasto('tasto-secondario', 'Da dove vengono', apriCrediti);
       cred.style.marginTop = '16px';
       corpo.appendChild(cred);
@@ -3427,7 +3403,6 @@
   }
   function apriFeste() {
     apriFoglio('Feste e santi', corpo => {
-      corpo.appendChild(el('p', '', 'Nei giorni di festa l\'app si veste a tema: un saluto sotto la data, i colori del titolo, una pioggia di simboli quando la apri e, per alcune feste, un suono al posto della sigla.'));
       const on = interruttore('Feste a tema', festeAccese());
       on.casella.id = 'festeAccese';
       on.casella.addEventListener('change', () => { pref.feste = on.casella.checked; scriviPref(); disegnaGiornata(); });
@@ -3456,7 +3431,7 @@
       riga.appendChild(campo('Giorno', selG));
       riga.appendChild(campo('Mese', selM));
       corpo.appendChild(riga);
-      corpo.appendChild(el('p', 'nota-campo', 'Quel giorno l\'app ti fa gli auguri. Resta solo su questo telefono.'));
+      corpo.appendChild(el('p', 'nota-campo', 'Resta solo su questo telefono.'));
       // le prossime feste, ognuna da provare
       corpo.appendChild(el('div', 'titoletto', 'Le prossime feste'));
       const lista = el('div', 'elenco-righe');
@@ -3485,7 +3460,7 @@
         righe.appendChild(x);
       }
       corpo.appendChild(righe);
-      corpo.appendChild(el('p', 'nota', 'Da Wikipedia: il Calendario romano generale, cioè le celebrazioni ufficiali dei calendari. Nei giorni senza una celebrazione ufficiale è il santo più conosciuto fra quelli del giorno, con un nome diffuso in Italia: lì può non essere quello del calendario di casa.'));
+      corpo.appendChild(el('p', 'nota', 'Dai calendari di oggi e di una volta (Wikipedia).'));
     });
   }
 
@@ -3543,9 +3518,9 @@
           const r2 = righe();
           for (const [k, v] of a.sm.dettaglio) rigaSaldo(r2, maiuscola(MESI[Number(k.slice(5)) - 1]) + ' ' + k.slice(0, 4), euro(v));
           rigaSaldo(r2, 'Media al mese', euro(a.sm.media), null, true);
-          corpo.appendChild(el('p', 'nota-campo', 'Le uscite dei mesi finiti, fino a tre, senza gli investimenti. Il mese in corso non conta: è a metà.'));
+          corpo.appendChild(el('p', 'nota-campo', 'Mesi finiti, investimenti esclusi.'));
         } else {
-          corpo.appendChild(el('p', 'aut-testo', 'Serve un mese intero di spese: fino ad allora il calcolo usa solo le spese fisse.'));
+          corpo.appendChild(el('p', 'aut-testo', 'Serve un mese intero di spese.'));
         }
       }
       // le spese fisse, per categoria
@@ -3556,7 +3531,7 @@
       const entrate = fissi.filter(r => r.tipo === 'entrata'), sposta = fissi.filter(eSpostamento);
       corpo.appendChild(el('div', 'titoletto', 'Spese fisse' + (conto ? ' ' + inConto(conto) : ', per categoria')));
       if (!fissi.length) {
-        corpo.appendChild(el('p', 'aut-testo', 'Nessun movimento fisso' + (conto ? ' ' + inConto(conto) : '') + ' ancora. Si dicono anche nella frase: «spotify 10,99 ogni 18 del mese».'));
+        corpo.appendChild(el('p', 'aut-testo', 'Nessun movimento fisso' + (conto ? ' ' + inConto(conto) : '') + '.'));
       } else {
         const tot = somma(vere);
         corpo.appendChild(el('p', 'riassunto', 'Al mese: uscite fisse ' + euro(tot) + (somma(invest) ? ' · investimenti ' + euro(somma(invest)) : '') + (somma(entrate) ? ' · entrate ' + euro(somma(entrate)) : '')));
@@ -3676,7 +3651,7 @@
       inp.type = 'search';
       inp.id = 'testoCerca';
       inp.value = f.testo;
-      inp.placeholder = 'Cerca: pizza, Esselunga, Svago, 12,50…';
+      inp.placeholder = 'Cerca';
       // il correttore dell'iPhone cambiava le parole («lazy» → altro): spento
       for (const [k, v] of [['autocomplete', 'off'], ['autocorrect', 'off'], ['autocapitalize', 'off'], ['spellcheck', 'false'], ['enterkeyhint', 'search']]) inp.setAttribute(k, v);
       const c = el('label', 'campo cerca-campo');

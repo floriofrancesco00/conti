@@ -8,6 +8,6 @@ self.EDIZIONE = {
   chiavePref: 'conti.preferenze',
   cache: 'conti-',                    // prefisso delle memorie del service worker
   inizioSulSerio: '2026-12-01',       // da questo giorno propone di cancellare i movimenti di prova (null = mai)
-  testoCopia: 'Da incollare a Claude, che lo salva nel second brain: è anche la tua copia di sicurezza.',
+  testoCopia: 'Da incollare a Claude. È anche la copia di sicurezza.',
   avvisoCopiato: 'Copiato: incollalo a Claude o in una nota'
 };
