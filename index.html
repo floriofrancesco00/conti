@@ -87,7 +87,8 @@
     <p id="bannerProvaTesto"></p>
     <div class="banner-tasti">
       <button id="provaTieni" class="tasto-secondario" type="button">Tienili</button>
-      <button id="provaCancella" class="tasto-secondario pericolo" type="button">Cancella le prove</button>
+      <button id="provaCancella" class="tasto-secondario pericolo" type="button">Solo le prove</button>
+      <button id="provaTutto" class="tasto-secondario pericolo" type="button">Da vuoto</button>
     </div>
   </div>
 
@@ -146,6 +147,7 @@
   <section id="sezCategorie" class="carta sezione" aria-labelledby="titoloCategorie">
     <h3 id="titoloCategorie">Spese per categoria</h3>
     <ol id="barre" class="barre"></ol>
+    <button id="barreAltre" class="barre-altre" type="button" hidden></button>
   </section>
 
   <section id="sezMesi" class="carta sezione" aria-labelledby="titoloMesi" hidden>
@@ -168,7 +170,7 @@
     </div>
     <div id="lista"></div>
     <!-- 18/11/2026: tutti i movimenti, dal… al…, col resoconto (apriMovimenti) -->
-    <button id="tuttiMovimenti" class="azione tutti-movimenti" type="button" hidden>📜 Tutti i movimenti ›<small></small></button>
+    <button id="tuttiMovimenti" class="azione con-icona tutti-movimenti" type="button" hidden><span class="azione-icona">📜</span><span class="azione-testo">Tutti i movimenti</span><small></small></button>
   </section>
 </main>
 

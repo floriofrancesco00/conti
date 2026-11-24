@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.24-1321';
+  const VERSIONE = '2026.11.24-1346';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -114,6 +114,7 @@
     try { localStorage.setItem(CHIAVE + '.illeggibile.' + Date.now(), grezzo); } catch (e) { /* spazio pieno */ }
     return vuoto();
   }
+  const maiSalvata = localStorage.getItem(CHIAVE) === null;   // prima apertura, o memoria persa: vedi offriCopia
   let stato = carica();
   let persistenzaChiesta = false;
 
@@ -140,6 +141,7 @@
       const testo = JSON.stringify(stato);
       localStorage.setItem(CHIAVE, testo);
       pesoStato = testo.length;
+      copiaTraPoco();
     } catch (e) {
       mostraToast('Non riesco a salvare: spazio del telefono pieno?');
       return false;
@@ -149,6 +151,48 @@
       navigator.storage.persist().catch(() => {});
     }
     return true;
+  }
+  // Le copie automatiche (24/11/2026), per quando segna tutto sul serio: una al giorno (l'ultima di ogni giorno) e una prima di
+  // ogni cancellazione o ritorno, dentro il telefono ma in un'altra memoria (IndexedDB). Le ultime 21 giornaliere, la prima di
+  // ogni mese per due anni, le ultime 8 «prima di…». Salvano da un tocco sbagliato o da un mio errore, non dal telefono perso.
+  const DB_COPIE = CHIAVE + '.copie';
+  let dbCopie = null, timerCopia = null;
+  function apriDbCopie() {
+    if (dbCopie) return dbCopie;
+    dbCopie = new Promise((ok, ko) => {
+      if (!window.indexedDB) { ko(new Error('niente IndexedDB')); return; }
+      const r = indexedDB.open(DB_COPIE, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('copie', { keyPath: 'id' });
+      r.onsuccess = () => ok(r.result);
+      r.onerror = () => ko(r.error);
+      r.onblocked = () => ko(new Error('bloccato'));
+    });
+    dbCopie.catch(() => { dbCopie = null; });
+    return dbCopie;
+  }
+  const conCopie = (modo, fa) => apriDbCopie().then(db => new Promise((ok, ko) => {
+    const tx = db.transaction('copie', modo), r = fa(tx.objectStore('copie'));
+    tx.oncomplete = () => ok(r && r.result);
+    tx.onerror = tx.onabort = () => ko(tx.error);
+  }));
+  const elencoCopie = () => conCopie('readonly', s => s.getAll()).then(l => (l || []).sort((a, b) => b.quando - a.quando), () => []);
+  function salvaCopia(motivo) {
+    const testo = JSON.stringify(stato), quando = Date.now();
+    const copia = { id: motivo ? 'm-' + quando : 'g-' + isoOggi(), quando, giorno: isoOggi(), motivo: motivo || '', movimenti: stato.movimenti.length, testo };
+    return conCopie('readwrite', s => s.put(copia)).then(() => elencoCopie()).then(l => {
+      const giornaliere = l.filter(c => !c.motivo), tieni = new Set(giornaliere.slice(0, 21).map(c => c.id));
+      const prima = new Map();   // mese → la sua prima copia (l'elenco va dalla più nuova alla più vecchia)
+      for (const c of giornaliere) prima.set(c.giorno.slice(0, 7), c.id);
+      [...prima.entries()].sort((a, b) => b[0].localeCompare(a[0])).slice(0, 24).forEach(([, id]) => tieni.add(id));
+      l.filter(c => c.motivo).slice(0, 8).forEach(c => tieni.add(c.id));
+      const via = l.filter(c => !tieni.has(c.id));
+      return via.length ? conCopie('readwrite', s => { via.forEach(c => s.delete(c.id)); }) : null;
+    }).catch(() => {});
+  }
+  // qualche secondo dopo l'ultima modifica; se è tutto vuoto la copia del giorno non si tocca (non deve coprire quella buona)
+  function copiaTraPoco() {
+    clearTimeout(timerCopia);
+    timerCopia = setTimeout(() => { if (stato.movimenti.length || stato.ricorrenti.length || CONTI_ID.some(c => stato.saldi[c])) salvaCopia(''); }, 2500);
   }
   const nuovoId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
@@ -216,6 +260,7 @@
     let t = String(s).replace(/[€\s]/g, '').replace('−', '-');
     let segno = 1;
     if (permettiNegativo && t.startsWith('-')) { segno = -1; t = t.slice(1); }
+    t = t.replace(/[.,]$/, '').replace(/^([.,]\d)/, '0$1');   // «12,» e «,50» mentre si scrive
     if (!t) return null;
     let n;
     if (/^\d{1,3}(\.\d{3})+(,\d{1,2})?$/.test(t)) n = parseFloat(t.replace(/\./g, '').replace(',', '.'));
@@ -288,7 +333,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'suoni ricontrollati sulle versioni vere di iOS';
+  const NOVITA = 'conti ricontrollati, copie automatiche, aspetto più pulito';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -515,8 +560,13 @@
     if (testo !== undefined) e.textContent = testo;
     return e;
   }
+  // «🔁 Movimenti fissi»: il simbolo davanti va in un riquadro suo (24/11/2026)
+  const SIMBOLO_DAVANTI = /^((?:\p{Extended_Pictographic}[\uFE0F\u200D\p{Emoji_Modifier}]*)+|↔|＋)\s+(?=\S)/u;
   function tasto(classe, testo, alClic) {
-    const b = el('button', classe, testo);
+    const azione = / ?\bazione\b/.test(classe), m = azione && SIMBOLO_DAVANTI.exec(testo || '');
+    const b = el('button', classe + (m ? ' con-icona' : ''), azione ? '' : testo);
+    if (m) b.appendChild(el('span', 'azione-icona', m[1]));
+    if (azione) b.appendChild(el('span', 'azione-testo', m ? testo.slice(m[0].length) : testo));
     b.type = 'button';
     b.addEventListener('click', alClic);
     return b;
@@ -754,8 +804,18 @@
     }
     $('scorciatoie').hidden = true;
     const opz = opzioniAnalisi();
+    const prima = proposte, sceltePrima = scelte;
     proposte = A.analizzaFrasi(testo, opz);
-    if (scelte.length !== proposte.length) scelte = proposte.map(() => ({}));
+    // aggiungendo un pezzo alla frase, quello che ha scelto a mano per gli altri resta (24/11/2026: si perdeva tutto)
+    if (scelte.length !== proposte.length) {
+      const usate = new Set();
+      scelte = proposte.map(p => {
+        const k = prima.findIndex((x, i) => !usate.has(i) && sceltePrima[i] && (x.testo === p.testo || p.testo.startsWith(x.testo) || x.testo.startsWith(p.testo)));
+        if (k < 0) return {};
+        usate.add(k);
+        return sceltePrima[k];
+      });
+    }
     correnti = proposte.map((p, i) => {
       const s = scelte[i];
       let r = p;
@@ -831,6 +891,8 @@
     const avviso = $('antAvviso');
     const senzaImporto = correnti.filter(c => !(c.importo > 0));
     const futuri = correnti.filter(c => !c.ripeti && daIso(c.data) > oggi());
+    const avanzati = correnti.flatMap(c => c.avanzati || []);   // importi della frase che nessuno ha preso
+    const doppi = correnti.filter(c => c.importo > 0 && !c.ripeti && stato.movimenti.some(m => ugualeA(m, c)));
     if (!multi) {
       const c = correnti[0];
       const ct = $('chipTipo');
@@ -880,11 +942,23 @@
     if (senzaImporto.length) {
       avviso.hidden = false;
       avviso.textContent = multi ? 'Manca l\'importo in «' + senzaImporto[0].descrizione + '».' : 'Manca l\'importo.';
+    } else if (avanzati.length) {
+      avviso.hidden = false;
+      avviso.textContent = 'Fuori è rimasto ' + avanzati.map(euro).join(', ') + ': separalo con una virgola.';
     } else if (futuri.length) {
       avviso.hidden = false;
       avviso.textContent = 'La data è nel futuro: controllala.';
+    } else if (doppi.length) {
+      avviso.hidden = false;
+      avviso.textContent = (multi ? '«' + corto(doppi[0].descrizione) + '» ' : '') + (multi ? 'è già segnato uguale ' : 'Già segnato uguale ') + etichettaGiorno(doppi[0].data).toLowerCase() + '.';
     } else avviso.hidden = true;
     $('salva').disabled = senzaImporto.length > 0;
+  }
+
+  // lo stesso movimento, già segnato lo stesso giorno (l'avviso non ferma niente: due caffè uguali si fanno)
+  function ugualeA(m, c) {
+    return m.data === c.data && m.tipo === c.tipo && m.importo === c.importo && A.normalizza(m.descrizione) === A.normalizza(c.descrizione) &&
+      (eSpostamento(c) ? m.da === c.da && m.verso === c.verso : contoDi(m) === contoDi(c));
   }
 
   function adattaAltezza() {
@@ -940,7 +1014,7 @@
   }
 
   function impara(descrizione, tipo, categoria) {
-    for (const p of A.paroleSignificative(descrizione)) stato.imparate[p] = { tipo, categoria };
+    for (const p of A.paroleSignificative(descrizione)) { delete stato.imparate[p]; stato.imparate[p] = { tipo, categoria }; }   // in fondo: è la più nuova
     const chiavi = Object.keys(stato.imparate);   // tetto: le ultime 600 parole
     if (chiavi.length > 600) for (const k of chiavi.slice(0, chiavi.length - 600)) delete stato.imparate[k];
   }
@@ -948,7 +1022,7 @@
   // il conto corretto a mano: la volta dopo le stesse parole vanno lì da sole (se non si sta guardando un conto)
   function imparaConto(descrizione, conto) {
     if (!CONTI_ID.includes(conto)) return;
-    for (const p of A.paroleSignificative(descrizione)) stato.imparatiConti[p] = conto;
+    for (const p of A.paroleSignificative(descrizione)) { delete stato.imparatiConti[p]; stato.imparatiConti[p] = conto; }
     const chiavi = Object.keys(stato.imparatiConti);   // tetto: le ultime 600 parole
     if (chiavi.length > 600) for (const k of chiavi.slice(0, chiavi.length - 600)) delete stato.imparatiConti[k];
   }
@@ -1124,8 +1198,9 @@
         chipC.textContent = iconaDi(b.tipo, b.categoria) + ' ' + b.categoria;
       });
       corpo.appendChild(campo('Che cos\'è', inDesc));
-      const inImp = inputTesto(b.importo ? formatoPerCampo(b.importo) : '', 'decimal');
+      const inImp = inputTesto(b.scritto !== undefined ? b.scritto : b.importo ? formatoPerCampo(b.importo) : '', 'decimal');
       inImp.placeholder = '0,00';
+      inImp.id = 'fissoImporto';
       corpo.appendChild(campo('Importo in euro', inImp));
       corpo.appendChild(el('div', 'titoletto', 'Che giorno del mese?'));
       corpo.appendChild(grigliaGiorni(b.giorno, g => { leggi(); b.giorno = g; disegnaForm(); }));
@@ -1135,7 +1210,8 @@
       const leggi = () => {
         b.descrizione = inDesc.value.trim();
         const v = leggiEuro(inImp.value);
-        if (v !== null) b.importo = v;
+        b.scritto = inImp.value;
+        b.importo = v === null ? 0 : v;
       };
       const chipT = tasto('chip scambia', etichettaTipo(b.tipo), () => {
         leggi();
@@ -1443,13 +1519,27 @@
           nuovi.push([id, v === prima ? undefined : v]);
         }
         const adesso = new Date().toISOString();
+        // di quanto non torna rispetto ai movimenti segnati: le cripto no, cambiano valore da sole (24/11/2026)
+        const scarti = [];
         for (const [id, v] of nuovi) {
           if (v === undefined) continue;
+          const prima = campi.find(x => x[0] === id)[2];
+          if (v !== null && prima !== null && id !== 'cripto' && !stato.saldi.daDividere) scarti.push([id, v - prima]);
           stato.saldi[id] = v === null ? null : { importo: v, data: isoOggi(), aggiornato: adesso };
         }
         if (solo !== 'cripto') delete stato.saldi.daDividere;
         scrivi(); chiudiFoglio(); disegna();
-        mostraToast(solo ? 'Saldo salvato' : 'Saldi salvati');
+        if (!scarti.length) { mostraToast(solo ? 'Saldo salvato' : 'Saldi salvati'); return; }
+        // «Segna»: la differenza diventa un movimento di oggi, già compreso nel saldo appena scritto (creato un attimo prima)
+        mostraToast(scarti.map(([id, d]) => infoConto(id).nome + ' ' + conSegno(d)).join(', ') + ' rispetto ai movimenti', 'Segna', () => {
+          const creato = new Date(Date.parse(adesso) - 1).toISOString();
+          for (const [id, d] of scarti) {
+            const tipo = d > 0 ? 'entrata' : 'uscita';
+            stato.movimenti.push({ id: nuovoId(), data: isoOggi(), tipo, importo: Math.abs(d), categoria: ripiegoDi(tipo), descrizione: 'Differenza di saldo', testo: '', creato, conto: id });
+          }
+          scrivi(); disegna();
+          mostraToast(scarti.length === 1 ? 'Segnata la differenza' : 'Segnate le differenze');
+        }, 10000);
       }));
       corpo.appendChild(riga);
     });
@@ -1855,11 +1945,14 @@
     const somme = new Map();
     for (const m of lista) if (m.tipo === 'uscita') somme.set(m.categoria, (somme.get(m.categoria) || 0) + m.importo);
     const righe = [...somme.entries()].sort((a, b) => b[1] - a[1]);
+    $('barreAltre').hidden = true;
     if (!righe.length) {
       ol.appendChild(el('li', 'vuoto', 'Nessuna spesa in questo periodo.'));
       return;
     }
     const max = righe[0][1];
+    const corte = righe.length > 8 && !vista.tutteBarre && !righe.slice(6).some(([n]) => n === vista.filtro);
+    ol.classList.toggle('corte', corte);
     for (const [nome, cent] of righe) {
       const li = el('li');
       const b = el('button', 'barra-riga');
@@ -1882,6 +1975,8 @@
       li.appendChild(b);
       ol.appendChild(li);
     }
+    $('barreAltre').hidden = righe.length <= 8 || (!corte && !vista.tutteBarre);
+    $('barreAltre').textContent = corte ? 'Altre ' + (righe.length - 6) + ' categorie ›' : 'Solo le prime';
   }
 
   function disegnaMesi() {
@@ -1996,11 +2091,19 @@
       if (m.data !== giorno) {
         giorno = m.data;
         const futuro = m.data > oggiIso;
-        cont.appendChild(el('div', 'giorno-titolo' + (futuro ? ' in-arrivo' : ''), (futuro ? 'In arrivo · ' : '') + etichettaGiorno(m.data)));
+        cont.appendChild(titoloGiorno(m.data, futuro, spesoNelGiorno(righe, m.data, vista.conto)));
       }
       cont.appendChild(rigaMovimento(m));
     }
   }
+  // la data e, a destra, quanto si è speso quel giorno (24/11/2026)
+  function titoloGiorno(data, futuro, speso) {
+    const t = el('div', 'giorno-titolo' + (futuro ? ' in-arrivo' : ''));
+    t.appendChild(el('span', '', (futuro ? 'In arrivo · ' : '') + etichettaGiorno(data)));
+    if (speso) t.appendChild(el('span', 'giorno-totale', '−' + euro(speso)));
+    return t;
+  }
+  const spesoNelGiorno = (lista, data, conto) => lista.reduce((a, m) => a + (m.data === data && m.tipo === 'uscita' && (!conto || contoDi(m) === conto) ? m.importo : 0), 0);
   const piuRecenti = (a, b) => b.data.localeCompare(a.data) || (b.creato || '').localeCompare(a.creato || '');
 
   // ritorno (facoltativo): nella vista «Tutti i movimenti», dopo averlo modificato si torna lì. conto: quello che
@@ -2043,13 +2146,15 @@
       importo: Math.abs(orig.importo), ripeti: false, giorno: daIso(orig.data).getDate() }, orig);
     const fissoDi = () => orig.ricorrente && stato.ricorrenti.find(r => r.id === orig.ricorrente);
     const ridisegna = () => apriFoglio('Modifica movimento', corpo => {
-      const inImp = inputTesto(formatoPerCampo(bozza.importo), 'decimal');
+      // quello che ha scritto resta anche passando da un altro foglio (se è scritto male, lo dice Salva)
+      const inImp = inputTesto(bozza.scritto !== undefined ? bozza.scritto : formatoPerCampo(bozza.importo), 'decimal');
       inImp.id = 'modImporto';
       const inDesc = inputTesto(bozza.descrizione);
       inDesc.id = 'modDescrizione';
       const leggiCampi = () => {
         const v = leggiEuro(inImp.value);
-        if (v !== null) bozza.importo = v;
+        bozza.scritto = inImp.value;
+        bozza.importo = v === null ? 0 : v;   // prima un importo scritto male si ignorava e restava quello vecchio (24/11/2026)
         bozza.descrizione = inDesc.value.trim();
       };
       const g = el('div', 'chips');
@@ -2085,6 +2190,7 @@
             alCambiare: v => { bozza.ripeti = v.acceso; bozza.giorno = v.giorno; } });
       }));
       corpo.appendChild(g);
+      if (!orig.ricorrente && !bozza.ripeti && bozza.data > isoOggi()) corpo.appendChild(el('p', 'avviso', 'La data è nel futuro: controllala.'));
       corpo.appendChild(campo('Importo in euro', inImp));
       corpo.appendChild(campo('Descrizione', inDesc));
       if (orig.testo) corpo.appendChild(el('p', 'nota', 'Frase originale: «' + orig.testo + '»'));
@@ -2445,7 +2551,7 @@
       const tf = totaleFissi(), nf = stato.ricorrenti.length;
       voce('🔁 Movimenti fissi', nf ? nf + (nf === 1 ? ' impostato' : ' impostati') + (tf.uscite ? ' · uscite ' + euro(tf.uscite) + ' al mese' : '') : 'Si segnano da soli ogni mese.', apriFissi);
       const saldi = A.CONTI.map(c => [c, saldoAttuale(c.id)]).filter(([, v]) => v !== null);
-      voce('🏦 Saldi dei conti', saldi.length ? (saldoVisibile ? saldi.map(([c, v]) => c.icona + ' ' + euro(v)).join(' · ') : 'Nascosti dall\'occhio') + ' · tocca per correggerli'
+      voce('🏦 Saldi dei conti', saldi.length ? (saldoVisibile ? saldi.map(([c, v]) => c.icona + ' ' + euro(v)).join(' · ') : 'Nascosti dall\'occhio')
         : 'Contanti, digitale, cripto.', () => apriSaldo());
       voce('🧾 Tasse da accantonare', stato.tasse.attiva ? String(stato.tasse.percentuale).replace('.', ',') + '% di ' + (stato.tasse.categorie.join(', ') || 'nessuna categoria') : 'Spento', apriTasse);
       voce('🏷️ Categorie', 'Nomi e simboli.', apriCategorie);
@@ -2475,6 +2581,11 @@
       bEsp.appendChild(el('small', '', 'Copia o condividi un periodo.'));
       azioni.appendChild(bEsp);
 
+      const bCop = tasto('azione', '🕰️ Copie automatiche', apriCopie);
+      bCop.id = 'voceCopie';
+      bCop.appendChild(el('small', '', 'Torna a un giorno prima.'));
+      azioni.appendChild(bCop);
+
       const bImp = tasto('azione', '📥 Importa da testo', () => apriImporta());
       bImp.appendChild(el('small', '', 'Da una copia esportata.'));
       azioni.appendChild(bImp);
@@ -2489,7 +2600,7 @@
 
       const bZero = tasto('azione', '🧨 Ricomincia da zero', () => ricomincia());
       bZero.style.color = 'var(--critico)';
-      bZero.disabled = !n;
+      bZero.disabled = !n && !stato.ricorrenti.length && !CONTI_ID.some(c => stato.saldi[c]);
       bZero.appendChild(el('small', '', 'Cancella i movimenti.'));
       azioni.appendChild(bZero);
 
@@ -2569,6 +2680,74 @@
     mostraToast(e.aggiunti ? 'Arrivati dalla vecchia icona: ' + e.aggiunti + (e.aggiunti === 1 ? ' movimento' : ' movimenti') : 'Nessun movimento nuovo da aggiungere');
   }
 
+  const quandoCopia = c => { const d = new Date(c.quando), p = n => String(n).padStart(2, '0'); return etichettaGiorno(c.giorno) + ' alle ' + p(d.getHours()) + ':' + p(d.getMinutes()); };
+  // si torna a una copia: prima se ne fa una di adesso
+  function tornaA(copia) {
+    let s = null;
+    try { s = JSON.parse(copia.testo); } catch (e) { s = null; }
+    if (!s || !Array.isArray(s.movimenti)) { mostraToast('Questa copia non si legge'); return; }
+    const prima = JSON.stringify(stato);
+    const fatto = salvaCopia('prima di tornare a una copia');
+    const metti = testo => {
+      try { localStorage.setItem(CHIAVE, testo); } catch (e) { mostraToast('Non riesco a salvare: spazio del telefono pieno?'); return false; }
+      stato = carica();
+      scelte = [];
+      vista.filtro = null;
+      generaRicorrenti(true);
+      scrivi();
+      rileggi();
+      disegna();
+      return true;
+    };
+    if (!metti(copia.testo)) return;
+    chiudiFoglio();
+    mostraToast('Tornato a ' + quandoCopia(copia).toLowerCase() + ': ' + movimenti_(stato.movimenti.length), 'Annulla', () => { metti(prima); }, 12000);
+    return fatto;
+  }
+  function apriCopie() {
+    apriFoglio('Copie automatiche', corpo => {
+      corpo.appendChild(el('p', '', 'Ogni giorno, e prima di ogni cancellazione. Dentro questo telefono.'));
+      const lista = el('div', 'elenco-righe');
+      lista.id = 'listaCopie';
+      corpo.appendChild(lista);
+      elencoCopie().then(l => {
+        if (!l.length) { lista.appendChild(el('p', 'vuoto', 'Ancora nessuna.')); return; }
+        for (const c of l) {
+          const b = el('button', 'cat-riga');
+          b.type = 'button';
+          b.dataset.copia = c.id;
+          b.appendChild(el('span', 'cat-icona', c.motivo ? '🛟' : '🕰️'));
+          const testi = el('span', 'mov-testi');
+          testi.appendChild(el('span', 'mov-desc', quandoCopia(c)));
+          testi.appendChild(el('span', 'mov-cat', movimenti_(c.movimenti) + (c.motivo ? ' · ' + c.motivo : '')));
+          b.appendChild(testi);
+          b.appendChild(el('span', 'cat-freccia', '›'));
+          b.addEventListener('click', () => {
+            if (confirm('Tornare a ' + quandoCopia(c).toLowerCase() + ' (' + movimenti_(c.movimenti) + ')? Prima salvo una copia di adesso.')) tornaA(c);
+          });
+          lista.appendChild(b);
+        }
+      });
+    });
+  }
+  // la memoria dei movimenti è vuota da sempre ma le copie ci sono: l'iPhone l'ha persa. Si offre l'ultima buona.
+  function offriCopia() {
+    if (!maiSalvata || stato.movimenti.length) return;
+    elencoCopie().then(l => {
+      const buona = l.find(c => c.movimenti > 0);
+      if (!buona || stato.movimenti.length) return;
+      apriFoglio('I movimenti non ci sono più', corpo => {
+        corpo.appendChild(el('p', '', 'Ho una copia di ' + quandoCopia(buona).toLowerCase() + ', con ' + movimenti_(buona.movimenti) + '.'));
+        const riga = el('div', 'riga-tasti colonna');
+        const b = tasto('tasto-primario', 'Rimetti la copia', () => tornaA(buona));
+        b.id = 'rimettiCopia';
+        riga.appendChild(b);
+        riga.appendChild(tasto('tasto-secondario', 'No', () => chiudiFoglio(true)));
+        corpo.appendChild(riga);
+      });
+    });
+  }
+
   function apriImporta() {
     apriFoglio('Importa movimenti', corpo => {
       corpo.appendChild(el('p', '', 'Incolla una copia esportata.'));
@@ -2580,6 +2759,7 @@
       corpo.appendChild(c);
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-primario', 'Importa', () => {
+        salvaCopia('prima di importare');
         const e = importaTesto(ta.value);
         chiudiFoglio();
         generaRicorrenti(true);
@@ -2612,14 +2792,55 @@
   }
 
   // ================================================================ ricominciare e fine delle prove
+  // Cancellare i movimenti non cambia quanti soldi ha: i saldi di oggi restano quelli (24/11/2026: tornavano a quelli scritti
+  // settimane prima, perché i movimenti venuti dopo sparivano). E i fissi del mese, se il fisso resta, si risegnano: prima
+  // chi ripartiva da zero il 1° del mese perdeva quelli del mese e non tornavano più.
   function cancella(condizione, messaggio) {
+    salvaCopia('prima di cancellare');
     const tolti = stato.movimenti.filter(condizione);
+    const saldiPrima = JSON.stringify(stato.saldi), fattiPrima = stato.ricorrenti.map(r => [r, (r.fatti || []).slice()]);
+    const oggiPrima = CONTI_ID.map(c => [c, saldoAttuale(c)]);
     stato.movimenti = stato.movimenti.filter(m => !condizione(m));
+    const adesso = new Date().toISOString(), ora = chiaveMese(oggi());
+    for (const [c, v] of oggiPrima) if (v !== null && saldoAttuale(c) !== v) stato.saldi[c] = { importo: v, data: isoOggi(), aggiornato: adesso };
+    for (const r of stato.ricorrenti) {
+      if (!r.attivo || !tolti.some(m => m.ricorrente === r.id && m.data.slice(0, 7) >= ora)) continue;
+      r.fatti = (r.fatti || []).filter(k => k < ora || !tolti.some(m => m.ricorrente === r.id && m.data.slice(0, 7) === k));
+    }
+    generaRicorrenti(true);
+    // quelli di questo mese già passati e già dentro il saldo: segnati, ma senza toglierli una seconda volta
+    for (const m of stato.movimenti) {
+      if (!m.ricorrente || m.creato < adesso || m.data > isoOggi()) continue;
+      if (tolti.some(x => x.ricorrente === m.ricorrente && x.data === m.data)) m.creato = tolti.find(x => x.ricorrente === m.ricorrente && x.data === m.data).creato || m.creato;
+    }
     scrivi();
     chiudiFoglio();
     disegna();
     if (tolti.length) suonaMovimento('elimina');
-    mostraToast(messaggio, 'Annulla', () => { stato.movimenti = stato.movimenti.concat(tolti); scrivi(); disegna(); });
+    mostraToast(messaggio, 'Annulla', () => {
+      const via = new Set(tolti.map(m => m.id)), rifatti = m => m.ricorrente && m.creato >= adesso;
+      stato.movimenti = stato.movimenti.filter(m => !via.has(m.id) && !rifatti(m)
+        && !(m.ricorrente && tolti.some(x => x.ricorrente === m.ricorrente && x.data === m.data))).concat(tolti);
+      stato.saldi = JSON.parse(saldiPrima);
+      for (const [r, f] of fattiPrima) r.fatti = f;
+      scrivi(); disegna();
+    });
+  }
+  // 15. «Tutto»: come appena installata, tenendo categorie, tasse e preferenze. Prima una copia, poi Annulla, poi i saldi.
+  function cancellaTutto() {
+    salvaCopia('prima di ripartire da vuoto');
+    const prima = JSON.stringify(stato);
+    const tieni = { categorie: stato.categorie, tasse: Object.assign({}, stato.tasse, { dal: stato.tasse.attiva ? isoOggi() : stato.tasse.dal }) };
+    stato = Object.assign(vuoto(), tieni);
+    vista.filtro = null;
+    scelte = [];
+    if (INIZIO_SUL_SERIO && isoOggi() >= INIZIO_SUL_SERIO) { pref.proveChiuse = true; scriviPref(); }
+    scrivi();
+    chiudiFoglio();
+    rileggi();
+    disegna();
+    suonaMovimento('elimina');
+    mostraToast('Si riparte da vuoto', 'Annulla', () => { stato = JSON.parse(prima); scrivi(); rileggi(); disegna(); }, 12000);
   }
 
   // Due conferme (la seconda chiesta da Francesco il 10/11/2026), poi qualche secondo per «Annulla».
@@ -2636,6 +2857,11 @@
     const scelta = { conti: CONTI_ID.slice(), tieniFissi: false };
     apriFoglio('Ricomincia da zero', corpo => {
       corpo.appendChild(el('p', '', 'Impostazioni e categorie restano.'));
+      const tutto = tasto('azione', '🧨 Tutto, si riparte da vuoto', () => confermaTutto());
+      tutto.id = 'cancellaTutto';
+      tutto.style.marginTop = '12px';
+      tutto.appendChild(el('small', '', 'Movimenti, spese ricorrenti, saldi e parole imparate.'));
+      corpo.appendChild(tutto);
       const kp = stato.movimenti.filter(daCancellare(TRANNE_CRIPTO)).length;
       const pre = tasto('azione', '🧹 Tutto tranne Cripto e spese ricorrenti', () => ricominciaConferma(TRANNE_CRIPTO, kp));
       pre.id = 'cancellaTranneCripto';
@@ -2680,6 +2906,22 @@
       conta();
     });
   }
+  function confermaTutto() {
+    const n = stato.movimenti.length, f = stato.ricorrenti.length, s = CONTI_ID.filter(c => stato.saldi[c]).length;
+    const inizio = INIZIO_SUL_SERIO && isoOggi() >= INIZIO_SUL_SERIO ? stato.movimenti.filter(m => m.data >= INIZIO_SUL_SERIO && !m.ricorrente).length : 0;
+    apriFoglio('Sei proprio sicuro?', corpo => {
+      corpo.appendChild(el('p', 'allarme', '🧨 Stai per cancellare ' + [n ? movimenti_(n) : '', f ? f + (f === 1 ? ' spesa ricorrente' : ' spese ricorrenti') : '',
+        s ? s + (s === 1 ? ' saldo' : ' saldi') : ''].filter(Boolean).join(', ') + '.'));
+      if (inizio) corpo.appendChild(el('p', 'avviso', 'Compresi ' + movimenti_(inizio) + ' da dicembre in poi.'));
+      corpo.appendChild(el('p', '', 'Una copia resta in Menù → Copie automatiche.'));
+      const riga = el('div', 'riga-tasti colonna');
+      const si = tasto('tasto-pericolo pieno', 'Sì, si riparte da vuoto', cancellaTutto);
+      si.id = 'cancellaTuttoSi';
+      riga.appendChild(si);
+      riga.appendChild(tasto('tasto-secondario', 'No, tieni tutto', () => chiudiFoglio(true)));
+      corpo.appendChild(riga);
+    });
+  }
   function ricominciaConferma(scelta, n) {
     const parte = scelta.conti.length < CONTI_ID.length || scelta.tieniFissi;
     apriFoglio('Sei proprio sicuro?', corpo => {
@@ -2687,7 +2929,8 @@
       const elenco = dove.length > 1 ? dove.slice(0, -1).join(', ') + ' e ' + dove[dove.length - 1] : dove.join('');
       corpo.appendChild(el('p', 'allarme', '🧨 Stai per cancellare ' + movimenti_(n) + (parte ? ' ' + elenco : '') + '.'));
       if (scelta.tieniFissi) corpo.appendChild(el('p', '', 'Le spese ricorrenti restano.'));
-      corpo.appendChild(el('p', '', 'Dopo qualche secondo non si torna indietro.'));
+      if (!scelta.tieniFissi && stato.ricorrenti.some(r => r.attivo)) corpo.appendChild(el('p', '', 'Le spese ricorrenti di questo mese si risegnano.'));
+      corpo.appendChild(el('p', '', 'I saldi di oggi restano. Una copia resta in Menù → Copie automatiche.'));
       const riga = el('div', 'riga-tasti colonna');
       riga.appendChild(tasto('tasto-pericolo pieno', 'Sì, cancella ' + movimenti_(n), () => cancella(daCancellare(scelta), 'Cancellati ' + movimenti_(n))));
       riga.appendChild(tasto('tasto-secondario', 'No, tienili', () => chiudiFoglio(true)));
@@ -2705,11 +2948,11 @@
     const tenute = stato.movimenti.filter(m => m.data < INIZIO_SUL_SERIO && !unaProva(m)).length;
     const mostra = isoOggi() >= INIZIO_SUL_SERIO && !pref.proveChiuse && prove.length > 0;
     $('bannerProva').hidden = !mostra;
-    if (mostra) $('bannerProvaTesto').textContent = 'Dal 1° dicembre si fa sul serio. Cancello i ' + prove.length +
-      (prove.length === 1 ? ' movimento di prova segnato' : ' movimenti di prova segnati') + ' prima?' +
-      (tenute ? ' Tengo ' + (tenute === 1 ? 'quello' : 'i ' + tenute) + ' in cripto e delle spese ricorrenti.' : ' Cripto e spese ricorrenti restano.');
+    if (mostra) $('bannerProvaTesto').textContent = 'Dal 1° dicembre si fa sul serio. Riparti da vuoto, o cancello ' + (prove.length === 1 ? 'il movimento di prova segnato' : 'i ' + prove.length + ' movimenti di prova segnati') +
+      ' prima?' + (tenute ? ' Così tengo ' + (tenute === 1 ? 'quello' : 'i ' + tenute) + ' in cripto e delle spese ricorrenti.' : ' Così cripto e spese ricorrenti restano.');
   }
   $('provaTieni').addEventListener('click', () => { pref.proveChiuse = true; scriviPref(); disegnaBannerProva(); });
+  $('provaTutto').addEventListener('click', confermaTutto);
   $('provaCancella').addEventListener('click', () => {
     pref.proveChiuse = true;
     scriviPref();
@@ -3295,7 +3538,7 @@
         corpo.appendChild(el('div', 'titoletto', titolo));
         const g = el('div', 'elenco-azioni');
         for (const a of lista) {
-          const b = tasto('azione scelta-suono', (a.id === attuale ? '✓ ' : '') + a.nome, () => {
+          const b = tasto('azione scelta-suono', a.nome, () => {
             salva(a.id);
             scriviPref();
             if (a.id !== 'nessuno') S.suona(a.id);
@@ -3710,7 +3953,7 @@
 
       let righe = [], mese = null, giorno = null, fatte = 0, sentinella = null;
       // le uscite di ogni mese, per il titolo del mese (un passaggio solo)
-      let uscitePerMese = new Map();
+      let uscitePerMese = new Map(), uscitePerGiorno = new Map();
       const altre = n => {
         const fino = Math.min(righe.length, fatte + n);
         const oggiIso = isoOggi();
@@ -3728,7 +3971,7 @@
           if (m.data !== giorno) {
             giorno = m.data;
             const futuro = m.data > oggiIso;
-            frammento.appendChild(el('div', 'giorno-titolo' + (futuro ? ' in-arrivo' : ''), (futuro ? 'In arrivo · ' : '') + etichettaGiorno(m.data)));
+            frammento.appendChild(titoloGiorno(m.data, futuro, uscitePerGiorno.get(m.data) || 0));
           }
           frammento.appendChild(rigaMovimento(m, {
             prima: () => { f.mostrati = Math.max(BLOCCO, fatte); f.scorso = $('foglio').scrollTop; },
@@ -3760,7 +4003,11 @@
         const r = cerca(f.testo, base);
         righe = r.trovati.slice().sort(piuRecenti);
         uscitePerMese = new Map();
-        for (const m of righe) if (m.tipo === 'uscita' && (!f.conto || contoDi(m) === f.conto)) uscitePerMese.set(m.data.slice(0, 7), (uscitePerMese.get(m.data.slice(0, 7)) || 0) + m.importo);
+        uscitePerGiorno = new Map();
+        for (const m of righe) if (m.tipo === 'uscita' && (!f.conto || contoDi(m) === f.conto)) {
+          uscitePerMese.set(m.data.slice(0, 7), (uscitePerMese.get(m.data.slice(0, 7)) || 0) + m.importo);
+          uscitePerGiorno.set(m.data, (uscitePerGiorno.get(m.data) || 0) + m.importo);
+        }
         disegnaResoconto(res, righe, f, r, inDa.value, inA.value, () => aggiorna(false));
         lista.textContent = '';
         mese = null; giorno = null; fatte = 0; sentinella = null;
@@ -3835,6 +4082,7 @@
   $('velo').addEventListener('click', chiudiFoglio);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(); });
   $('filtro').addEventListener('click', () => { vista.filtro = null; disegna(); });
+  $('barreAltre').addEventListener('click', () => { vista.tutteBarre = !vista.tutteBarre; disegna(); });
   $('occhio').addEventListener('click', () => cambiaOcchio());
   $('occhioSaldi').addEventListener('click', () => cambiaOcchio());
   // anche toccando i pallini del saldo («quando schiacci il saldo»)
@@ -3861,9 +4109,32 @@
   }));
   // un'altra scheda che cambia i dati
   window.addEventListener('storage', e => { if (e.key === CHIAVE) { stato = carica(); disegna(); } });
+  // Il giorno che cambia (24/11/2026): se stava guardando il mese (o l'anno) di allora, si passa a quello di adesso. Prima,
+  // riaprendola il 1° dicembre dal sottofondo, restava su novembre; e a mezzanotte, con l'app davanti, «oggi» restava ieri.
+  let giornoVisto = isoOggi();
+  function nuovoGiorno() {
+    const adesso = isoOggi();
+    if (adesso === giornoVisto) return false;
+    const prima = daIso(giornoVisto), ora = oggi();
+    giornoVisto = adesso;
+    if (vista.anno === prima.getFullYear() && (vista.modo === 'anno' || vista.mese === prima.getMonth())) {
+      if (vista.anno !== ora.getFullYear() || vista.mese !== ora.getMonth()) vista.filtro = null;
+      vista.anno = ora.getFullYear();
+      vista.mese = ora.getMonth();
+    }
+    return true;
+  }
+  setInterval(() => {
+    if (document.hidden || !nuovoGiorno()) return;
+    generaRicorrenti();
+    rileggi();
+    disegna();
+    applicaSfondo();
+  }, 20000);
   // tornando in primo piano: può essere un altro giorno (fissi da segnare, «oggi» diverso, sfondo nuovo)
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) { nascostaDa = Date.now(); return; }
+    nuovoGiorno();
     generaRicorrenti();
     rileggi();
     disegna();
@@ -3899,6 +4170,8 @@
   generaRicorrenti();
   rileggi();
   disegna();
+  offriCopia();
+  copiaTraPoco();   // la prima del giorno anche se oggi non segna niente
   brillaTitolo();
   sigla();
   pioggiaFesta(festaDiOggi());
@@ -3937,6 +4210,6 @@
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
     vista: () => vista, scegliVistaConto, saldoVisibile: () => saldoVisibile,
     controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriMovimenti, apriSuoni, spazioUsato,
-    apriAutonomia, apriFeste, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
+    apriAutonomia, apriFeste, elencoCopie, salvaCopia, nuovoGiorno, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
   };
 })();

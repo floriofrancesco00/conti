@@ -252,6 +252,18 @@
     for (let i = 0; i < n && !data; i++) {
       const t = tok[i].norm;
       if (['oggi', 'stamattina', 'stamani', 'stasera', 'stanotte', 'stamane'].includes(t)) { data = oggi; usa(i); break; }
+      if (t === 'domani') { data = spostaGiorni(oggi, 1); usa(i); break; }
+      if (t === 'dopodomani') { data = spostaGiorni(oggi, 2); usa(i); break; }
+      // «3 giorni fa», «tre giorni fa», «una settimana fa», «due settimane fa»: il numero non è l'importo
+      if (t === 'fa' && i >= 2 && /^(giorn[oi]|settiman[ae])$/.test(tok[i - 1].norm)) {
+        const q = tok[i - 2], quanti = q.num !== undefined && Number.isInteger(q.num) ? q.num : /^(un|uno|una)$/.test(q.norm) ? 1 : /^\d{1,2}$/.test(q.norm) ? +q.norm : null;
+        if (quanti !== null && quanti > 0 && quanti <= 60 && !q.usato) {
+          data = spostaGiorni(oggi, -quanti * (tok[i - 1].norm.startsWith('settiman') ? 7 : 1));
+          usa(i - 2, i - 1, i);
+          delete q.num;
+          break;
+        }
+      }
       if (t === 'altroieri' || t === 'ieralaltro') { data = spostaGiorni(oggi, -2); usa(i); break; }
       if (t === 'altro' && tok[i + 1] && tok[i + 1].norm === 'ieri') {
         data = spostaGiorni(oggi, -2); usa(i, i + 1);
@@ -303,7 +315,10 @@
         if (giorno >= 1 && giorno <= 31 && restanoImporti(i + 1)) {
           // solo il giorno: se cadrebbe nel futuro è del mese scorso
           data = new Date(oggi.getFullYear(), oggi.getMonth(), giorno);
-          if (data > spostaGiorni(oggi, 1)) data = new Date(oggi.getFullYear(), oggi.getMonth() - 1, giorno);
+          // l'ultimo mese che quel giorno ce l'ha: «il 31» detto il 10 dicembre è il 31 ottobre, non il «31 novembre»
+          for (let indietro = 1; indietro <= 3 && (data > spostaGiorni(oggi, 1) || data.getDate() !== giorno); indietro++) {
+            data = new Date(oggi.getFullYear(), oggi.getMonth() - indietro, giorno);
+          }
           usa(i, i + 1);
           break;
         }
@@ -312,12 +327,15 @@
     return data;
   }
 
-  // Senza anno: se la data cadrebbe nel futuro (oltre domani) è dell'anno scorso.
+  // Senza anno: se la data cadrebbe nel futuro è dell'anno scorso; ma se manca al massimo un mese è di quest'anno (24/11/2026:
+  // «affitto 500 il 20 dicembre» detto il 10 finiva un anno prima, dove non la si vede più; così l'anteprima dice che è
+  // nel futuro). A dicembre vale anche per i primi di gennaio. Il 31 di un mese che non ce l'ha diventa l'ultimo giorno.
   function componi(giorno, mese, anno, oggi) {
-    let a = anno !== null ? anno : oggi.getFullYear();
-    let d = new Date(a, mese, giorno);
-    if (anno === null && d > spostaGiorni(oggi, 1)) d = new Date(a - 1, mese, giorno);
-    return d;
+    const fai = a => new Date(a, mese, Math.min(giorno, new Date(a, mese + 1, 0).getDate()));
+    if (anno !== null) return fai(anno);
+    const a = oggi.getFullYear(), limite = spostaGiorni(oggi, 31);
+    if (fai(a) <= limite) return fai(a + 1) <= limite ? fai(a + 1) : fai(a);
+    return fai(a - 1);
   }
 
   // ---------------------------------------------------------------- importo
@@ -336,11 +354,16 @@
   function unisciImporti(tok) {
     const unisci = (t, valore, ...usati) => { t.num = valore; t.decimali = true; usati.forEach(u => { if (u) u.usato = true; }); };
     const cent = k => tok[k] && !tok[k].usato && CENTESIMI.test(tok[k].norm) ? tok[k] : null;
+    const inCifre = tok.some(t => !t.usato && t.num === undefined && !!numeroDaToken(t.norm));
     for (let i = 0; i < tok.length; i++) {
-      const t = tok[i], n = intero(t);
-      if (n === null) continue;
+      const t = tok[i];
+      let n = intero(t);
       const a = tok[i + 1], b = tok[i + 2], c = tok[i + 3];
       if (!a || a.usato) continue;
+      // «uno e venti», «uno virgola venti», «un euro e 20»: qui «uno» è un numero (24/11/2026: «caffè uno e venti» era 20 €)
+      // (con delle cifre nella frase solo se anche i centesimi sono in cifre: «con uno e venti amici 30» costa 30)
+      if (n === null && !t.usato && ((t.norm === 'uno' && (a.norm === 'virgola' || a.norm === 'e') && (!inCifre || (b && b.num === undefined))) || (/^uno?$/.test(t.norm) && VALUTA.has(a.norm)))) n = 1;
+      if (n === null) continue;
       if (a.norm === 'virgola') {
         const m = intero(b);
         if (m !== null && m < 100) {
@@ -415,7 +438,9 @@
                tok[i + 3] && /^centesim/.test(tok[i + 3].norm)) {
       valore += centDi(tok[i + 2]) / 100; dopo.usato = true; tok[i + 2].usato = true; tok[i + 3].usato = true;
     }
-    return { centesimi: Math.round(valore * 100), forte: !scelto.aParole || scelto.conValuta || !!scelto.num.decimali, segno: scelto.num.segno, esplicito: tok[i].orig.trim()[0] === '+' ? 1 : (scelto.num.segno < 0 ? -1 : 0) };
+    // gli altri importi della frase che nessuno ha preso: con «euro» accanto o coi centesimi (24/11/2026)
+    const avanzati = validi.filter(c => c !== scelto && !tok[c.i].usato && !c.anno && (c.conValuta || c.num.decimali)).map(c => Math.round(c.num.valore * 100)).filter(v => v > 0);
+    return { avanzati, centesimi: Math.round(valore * 100), forte: !scelto.aParole || scelto.conValuta || !!scelto.num.decimali, segno: scelto.num.segno, esplicito: tok[i].orig.trim()[0] === '+' ? 1 : (scelto.num.segno < 0 ? -1 : 0) };
   }
 
   // ---------------------------------------------------------------- categorie personali
@@ -676,7 +701,7 @@
         }
       }
     }
-    if (imp) { risultato.importo = imp.centesimi; risultato.certo.importo = imp.centesimi > 0; risultato.importoForte = imp.forte; }
+    if (imp) { risultato.importo = imp.centesimi; risultato.certo.importo = imp.centesimi > 0; risultato.importoForte = imp.forte; risultato.avanzati = imp.avanzati; }
 
     const spaziato = ' ' + tok.map(pulita).join(' ') + ' ';
     const primo = tok[0].orig.trim();
@@ -826,6 +851,29 @@
     const primo = normalizza(pezzo.trim()).split(/\s+/)[0] || '';
     return /^[+\-−€]?\d/.test(primo) || numeroDaParola(primo) !== null || primo === 'un' || primo === 'uno' || primo === 'euro';
   }
+  // «…e 20 per la pizza», «…e 2,50 di pane», «…e 30 euro al bar»: comincia con un importo intero e dopo c'è per cosa. Non è
+  // «…e 50» (i centesimi) né «…e 3 birre 40» (quante, non quanto).
+  const PER_COSA = new Set(['per', 'di', 'del', 'della', 'dello', 'dei', 'delle', 'degli', 'dell\'', 'da', 'dal', 'dalla', 'in', 'nel', 'nella', 'al', 'alla', 'allo',
+    'ai', 'alle', 'a', 'all\'', 'su', 'sul', 'sulla', 'dall\'', 'nell\'', 'sull\'', 'agli', 'x']);
+  function importoPerCosa(pezzo, opz) {
+    const tok = tokenizza(pezzo);
+    tok.forEach(t => { const n = numeroDaParola(t.norm); if (n !== null) t.num = n; });
+    const numero = t => t && (t.num !== undefined || !!numeroDaToken(t.norm) || /^uno?$/.test(t.norm));
+    if (!numero(tok[0]) && !(tok[0] && tok[0].norm === '€' && numero(tok[1]))) return false;
+    let i = 0;
+    while (i < tok.length && (numero(tok[i]) || VALUTA.has(tok[i].norm) || tok[i].norm === 'e' || tok[i].norm === 'virgola' || CENTESIMI.test(tok[i].norm))) i++;
+    if (i >= tok.length || !PER_COSA.has(tok[i].norm) || i + 1 >= tok.length) return false;
+    const solo = analizza(tok.slice(0, i).map(t => t.orig).join(' '), opz);
+    return solo.importo > 0 && analizza(pezzo, opz).importo === solo.importo;
+  }
+  // l'ultima parola di un pezzo è un numero o «euro»? Allora «e 50» dopo può essere dei centesimi
+  function finisceConNumero(pezzo) {
+    const tok = tokenizza(pezzo), u = tok[tok.length - 1];
+    return !!u && (VALUTA.has(u.norm) || numeroDaParola(u.norm) !== null || !!numeroDaToken(u.norm) || CENTESIMI.test(u.norm) || /^uno?$/.test(u.norm));
+  }
+  // «1,20 e 2 di mancia», «30 euro e 2,50 di pane»: i centesimi ci sono già da una parte, quindi sono due importi
+  const nonCentesimi = (sx, dx, opz) => analizza(sx, opz).importo % 100 !== 0 ||
+    (!/^\s*\S+\s+cent/i.test(dx) && (analizza(dx, opz).importo % 100 !== 0 || analizza(dx, opz).importo >= 10000));
   function dividi(testo, opz) {
     const grezzi = String(testo).split(/\s+e\s+poi\s+|\s+poi\s+|\n|;|,\s+|\.\s+/i).map(x => x.trim()).filter(Boolean);
     const uniti = [];
@@ -847,13 +895,13 @@
         let m, diviso = false;
         while ((m = re.exec(resto))) {
           const sx = resto.slice(0, m.index), dx = resto.slice(m.index + m[0].length);
-          if (pieno(sx) && pieno(dx) && !iniziaConNumero(dx)) { finali.push(sx.trim()); resto = dx; diviso = true; break; }
+          if (pieno(sx) && pieno(dx) && (!iniziaConNumero(dx) || ((!finisceConNumero(sx) || nonCentesimi(sx, dx, opz)) && importoPerCosa(dx, opz)))) { finali.push(sx.trim()); resto = dx; diviso = true; break; }
         }
         if (!diviso) break;
       }
       finali.push(resto.trim());
     }
-    return finali.slice(0, 12);
+    return finali.slice(0, 60);   // prima 12: gli altri sparivano in silenzio
   }
 
   // Come analizza, ma restituisce un elenco: uno per movimento. Chi non ha una data sua prende
