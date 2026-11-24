@@ -170,10 +170,21 @@
   // Cerca le parole chiave dentro il testo già normalizzato e spaziato (" a b c ").
   // Con «storte» accetta anche parole lunghe sbagliate di una lettera (due se lunghissime)
   // e due pezzi attaccati («provi gione»): gli errori tipici della trascrizione a voce.
+  // le varianti di una parola si fanno una volta sola: leggere una frase costa un terzo (24/11/2026)
+  const memoVarianti = new Map();
+  function variantiDi(parola) {
+    let v = memoVarianti.get(parola);
+    if (!v) {
+      if (memoVarianti.size > 6000) memoVarianti.clear();
+      v = [...varianti(normalizza(parola))];
+      memoVarianti.set(parola, v);
+    }
+    return v;
+  }
   function trova(testoSpaziato, elenco, storte) {
     let migliore = null;
     for (const parola of elenco) {
-      for (const v of varianti(normalizza(parola))) {
+      for (const v of variantiDi(parola)) {
         if (testoSpaziato.includes(' ' + v + ' ') && (!migliore || v.length > migliore.length)) migliore = v;
       }
     }
@@ -855,16 +866,39 @@
   // «…e 50» (i centesimi) né «…e 3 birre 40» (quante, non quanto).
   const PER_COSA = new Set(['per', 'di', 'del', 'della', 'dello', 'dei', 'delle', 'degli', 'dell\'', 'da', 'dal', 'dalla', 'in', 'nel', 'nella', 'al', 'alla', 'allo',
     'ai', 'alle', 'a', 'all\'', 'su', 'sul', 'sulla', 'dall\'', 'nell\'', 'sull\'', 'agli', 'x']);
-  function importoPerCosa(pezzo, opz) {
+  function importoPerCosa(pezzo, opz, dopoParola) {
     const tok = tokenizza(pezzo);
     tok.forEach(t => { const n = numeroDaParola(t.norm); if (n !== null) t.num = n; });
     const numero = t => t && (t.num !== undefined || !!numeroDaToken(t.norm) || /^uno?$/.test(t.norm));
     if (!numero(tok[0]) && !(tok[0] && tok[0].norm === '€' && numero(tok[1]))) return false;
     let i = 0;
     while (i < tok.length && (numero(tok[i]) || VALUTA.has(tok[i].norm) || tok[i].norm === 'e' || tok[i].norm === 'virgola' || CENTESIMI.test(tok[i].norm))) i++;
-    if (i >= tok.length || !PER_COSA.has(tok[i].norm) || i + 1 >= tok.length) return false;
+    if (i >= tok.length) return false;
     const solo = analizza(tok.slice(0, i).map(t => t.orig).join(' '), opz);
-    return solo.importo > 0 && analizza(pezzo, opz).importo === solo.importo;
+    if (!(solo.importo > 0) || analizza(pezzo, opz).importo !== solo.importo) return false;
+    if (PER_COSA.has(tok[i].norm)) return i + 1 < tok.length;
+    return dopoParola && cosaNota(tok[i].norm, opz) && quantoNonQuante(solo.importo, tok[i].norm, tok.slice(0, i));
+  }
+  // «45 benzina e 12 farmacia» (24/11/2026: i 12 si perdevano in silenzio): dopo il numero, senza «di» né «per», c'è una
+  // parola che conosce. «12 farmacia» è quanto (una parola al singolare non si conta), «3 birre» e «3 spritz» sono quante.
+  const note = new WeakMap();   // per ogni elenco di categorie, le parole che conosce (si fa una volta sola)
+  function paroleNote(lista) {
+    let s = note.get(lista);
+    if (!s) {
+      s = new Set();
+      for (const c of lista) { s.add(normalizza(c.nome)); for (const p of c.parole) for (const x of varianti(normalizza(p))) s.add(x); }
+      note.set(lista, s);
+    }
+    return s;
+  }
+  const cosaNota = (parola, opz) => ['uscita', 'entrata'].some(tipo => paroleNote(elenco(tipo, (opz || {}).categorie)).has(parola));
+  const SOLO_SPESE = new Set(['tabacchi', 'vestiti', 'detersivi', 'integratori', 'alimentari', 'trasporti', 'abbonamenti']);
+  function quantoNonQuante(centesimi, parola, numeri) {
+    if (centesimi % 100 || numeri.some(t => VALUTA.has(t.norm) || t.norm === '€' || /€/.test(t.orig))) return true;   // «12,50 farmacia», «12 euro farmacia»
+    const n = centesimi / 100;
+    if (/[ao]$/.test(parola)) return n > 1;
+    if (/[ie]$/.test(parola)) return n >= 5 && SOLO_SPESE.has(parola);
+    return n >= 10;   // «30 conad» è quanto, «3 spritz» quante
   }
   // l'ultima parola di un pezzo è un numero o «euro»? Allora «e 50» dopo può essere dei centesimi
   function finisceConNumero(pezzo) {
@@ -895,7 +929,7 @@
         let m, diviso = false;
         while ((m = re.exec(resto))) {
           const sx = resto.slice(0, m.index), dx = resto.slice(m.index + m[0].length);
-          if (pieno(sx) && pieno(dx) && (!iniziaConNumero(dx) || ((!finisceConNumero(sx) || nonCentesimi(sx, dx, opz)) && importoPerCosa(dx, opz)))) { finali.push(sx.trim()); resto = dx; diviso = true; break; }
+          if (pieno(sx) && pieno(dx) && (!iniziaConNumero(dx) || ((!finisceConNumero(sx) || nonCentesimi(sx, dx, opz)) && importoPerCosa(dx, opz, !finisceConNumero(sx))))) { finali.push(sx.trim()); resto = dx; diviso = true; break; }
         }
         if (!diviso) break;
       }
@@ -904,12 +938,30 @@
     return finali.slice(0, 60);   // prima 12: gli altri sparivano in silenzio
   }
 
+  // «45 benzina e 12 mancia»: la parola non la conosce, quindi non divide, ma i 12 rimasti fuori li dice
+  function forseFuori(testo, opz) {
+    const re = /\s+e\s+/gi;
+    let m;
+    while ((m = re.exec(testo))) {
+      const sx = testo.slice(0, m.index), tok = tokenizza(testo.slice(m.index + m[0].length));
+      if (tok.length < 2 || !/^\d+$/.test(tok[0].norm) || !/^[a-z]{3,}[ao]$/.test(tok[1].norm) || PER_COSA.has(tok[1].norm) || VALUTA.has(tok[1].norm) || MESI.includes(tok[1].norm) || GIORNI.includes(tok[1].norm) || NON_CENTESIMI.has(tok[1].norm)) continue;
+      const n = Number(tok[0].norm);
+      if (n > 1 && n < 10000 && !finisceConNumero(sx) && haImporto(sx, opz) && analizza(testo, opz).importo !== n * 100) return n * 100;
+    }
+    return null;
+  }
+
   // Come analizza, ma restituisce un elenco: uno per movimento. Chi non ha una data sua prende
   // la prima data detta nella frase («ieri pizza 12, benzina 50»: tutte e due ieri).
   function analizzaFrasi(testo, opz) {
     opz = opz || {};
     if (!String(testo).trim()) return [];
-    const risultati = dividi(testo, opz).map(p => Object.assign(analizza(p, opz), { testo: p }));
+    const risultati = dividi(testo, opz).map(p => {
+      const r = Object.assign(analizza(p, opz), { testo: p });
+      const fuori = forseFuori(p, opz);
+      if (fuori && !(r.avanzati || []).includes(fuori)) r.avanzati = (r.avanzati || []).concat(fuori);
+      return r;
+    });
     const conData = risultati.find(r => r.certo.data);
     if (conData) for (const r of risultati) if (!r.certo.data) r.data = conData.data;
     return risultati;

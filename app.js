@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.24-1700';
+  const VERSIONE = '2026.11.24-1917';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -333,7 +333,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'entrate per categoria';
+  const NOVITA = 'estetica rinnovata, più spese in una frase';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -1157,7 +1157,7 @@
       for (const r of ordinati) {
         const b = el('button', 'mov');
         b.type = 'button';
-        b.appendChild(el('span', 'mov-icona', eSpostamento(r) ? '↔' : iconaDi(r.tipo, r.categoria)));
+        b.appendChild(riquadro(eSpostamento(r) ? '↔' : iconaDi(r.tipo, r.categoria)));
         const testi = el('span', 'mov-testi');
         testi.appendChild(el('span', 'mov-desc', r.descrizione));
         testi.appendChild(el('span', 'mov-cat', 'ogni ' + r.giorno + ' del mese · ' + (eSpostamento(r) ? etichettaConto(r)
@@ -1895,10 +1895,13 @@
       }).join(' · ');
       rs.hidden = false;
     } else if (!conto && t.spostati) {
-      rs.textContent = '↔ Spostati fra i conti: ' + euro(t.spostati) + '. Non contano: restano soldi tuoi.';
+      rs.textContent = '↔ Spostati fra i conti: ' + euro(t.spostati);
       rs.hidden = false;
     } else rs.hidden = true;
 
+    const periodoOra = [vista.modo, vista.anno, vista.modo === 'mese' ? vista.mese : '', conto || ''].join('|');
+    document.body.classList.toggle('crescono', periodoOra !== periodoBarre);
+    periodoBarre = periodoOra;
     disegnaBarre('uscita', lista, t.uscite);
     disegnaBarre('entrata', lista, t.entrate);
     $('sezMesi').hidden = vista.modo !== 'anno';
@@ -1927,6 +1930,14 @@
     saldoVisibile = v === undefined ? !saldoVisibile : !!v;
     if (saldoVisibile && !prima) suonaSaldo(conto);
     disegna();
+    if (saldoVisibile && !prima) svela($('heroValore'));
+  }
+  // un'animazione di stile che riparte ogni volta (togliere e rimettere la classe da sole non basta)
+  function svela(e, classe) {
+    classe = classe || 'svela';
+    e.classList.remove(classe);
+    void e.offsetWidth;
+    e.classList.add(classe);
   }
 
   // In cima al riepilogo: tutti insieme o un conto solo. Toccando un conto si vede solo quello (entrate, uscite,
@@ -1947,6 +1958,7 @@
     uscita: { barre: 'barre', titolo: 'titoloCategorie', altre: 'barreAltre', nome: 'Spese', quota: 'delle uscite', vuoto: 'Nessuna spesa in questo periodo.' },
     entrata: { barre: 'barreEntrate', titolo: 'titoloEntrate', altre: 'barreEntrateAltre', nome: 'Entrate', quota: 'delle entrate', vuoto: 'Nessuna entrata in questo periodo.' }
   };
+  let periodoBarre = null;   // cambiando mese, anno o conto le barre crescono; salvando o toccandole no
   function disegnaBarre(tipo, lista, totale) {
     const B = BARRE[tipo];
     const ol = $(B.barre), altre = $(B.altre);
@@ -1971,17 +1983,22 @@
       b.setAttribute('aria-pressed', String(eFiltro(tipo, nome)));
       const quota = percento(cent, totale);
       b.setAttribute('aria-label', nome + ': ' + euro(cent) + ', ' + quota + ' ' + B.quota + '. Tocca per vedere i movimenti.');
-      const testi = el('div', 'barra-testi');
-      testi.appendChild(el('span', 'barra-nome', iconaDi(tipo, nome) + ' ' + nome));
-      const val = el('span', 'barra-valore', euro(cent));
-      val.appendChild(el('span', 'barra-quota', quota));
-      testi.appendChild(val);
-      b.appendChild(testi);
-      const pista = el('div', 'barra-pista');
-      const segno = el('div', 'barra-segno');
+      // come i movimenti: il simbolo nel suo riquadro; sotto al nome la barra, e accanto alla barra la percentuale
+      b.appendChild(riquadro(iconaDi(tipo, nome)));
+      const corpo = el('span', 'barra-corpo');
+      const testi = el('span', 'barra-testi');
+      testi.appendChild(el('span', 'barra-nome', nome));
+      testi.appendChild(el('span', 'barra-valore', euro(cent)));
+      corpo.appendChild(testi);
+      const sotto = el('span', 'barra-sotto');
+      const pista = el('span', 'barra-pista');
+      const segno = el('span', 'barra-segno');
       segno.style.width = Math.max(1, cent / max * 100) + '%';
       pista.appendChild(segno);
-      b.appendChild(pista);
+      sotto.appendChild(pista);
+      sotto.appendChild(el('span', 'barra-quota', quota));
+      corpo.appendChild(sotto);
+      b.appendChild(corpo);
       b.addEventListener('click', () => { vista.filtro = eFiltro(tipo, nome) ? null : { tipo, nome }; disegna(); });
       li.appendChild(b);
       ol.appendChild(li);
@@ -2089,7 +2106,7 @@
     if (!mostrati.length) {
       cont.appendChild(el('p', 'vuoto', stato.movimenti.length ? 'Nessun movimento' + (vista.conto ? ' ' + inConto(vista.conto) : '') + ' in questo periodo.'
         : 'Ancora nessun movimento.'));
-      if (!stato.movimenti.length) {   // un'icona nuova: i dati della vecchia arrivano dagli appunti
+      if (iconaNuova()) {   // i dati della vecchia arrivano dagli appunti
         const b = tasto('tasto-secondario', '📥 Incolla dalla vecchia icona', incollaDallaVecchia);
         b.id = 'incollaTraslocoLista';
         b.style.marginTop = '10px';
@@ -2119,12 +2136,14 @@
 
   // ritorno (facoltativo): nella vista «Tutti i movimenti», dopo averlo modificato si torna lì. conto: quello che
   // si guarda (lì può essere diverso da quello della pagina); senza conto, il simbolo del conto su ogni riga
+  // il simbolo nel suo riquadro; il puntino delle categorie senza simbolo, più grande
+  const riquadro = icona => el('span', 'mov-icona' + (icona === '•' ? ' punto' : ''), icona);
   function rigaMovimento(m, ritorno, conto) {
     const b = el('button', 'mov');
     b.type = 'button';
     b.dataset.id = m.id;
     const spost = eSpostamento(m);
-    b.appendChild(el('span', 'mov-icona', spost ? '↔' : iconaDi(m.tipo, m.categoria)));
+    b.appendChild(riquadro(spost ? '↔' : iconaDi(m.tipo, m.categoria)));
     const testi = el('span', 'mov-testi');
     testi.appendChild(el('span', 'mov-desc', m.descrizione));
     // il conto: per gli spostamenti da… a…; tutti insieme, il simbolo del conto
@@ -2787,10 +2806,14 @@
     return 'Esportati ' + (giorni === 0 ? 'oggi' : giorni === 1 ? 'ieri' : giorni + ' giorni fa') + '.';
   }
 
+  // un'icona nuova è quella dove non c'è mai stato niente: ricominciando da zero (il 1° dicembre) è solo vuota (24/11/2026)
+  const qualcosaDentro = () => !!(stato.movimenti.length || stato.ricorrenti.length || CONTI_ID.some(c => stato.saldi[c]));
+  const iconaNuova = () => !pref.avviata && !qualcosaDentro();
   function disegnaBanner() {
     // un'icona appena aggiunta: il tasto per portarci i dati della vecchia sta in cima, dove si vede subito (11/11/2026:
     // prima stava solo in fondo all'elenco vuoto, sotto riepilogo, autonomia e categorie)
-    $('bannerTrasloco').hidden = !!(stato.movimenti.length || stato.ricorrenti.length || CONTI_ID.some(c => stato.saldi[c]));
+    if (!pref.avviata && qualcosaDentro()) { pref.avviata = true; scriviPref(); }
+    $('bannerTrasloco').hidden = !iconaNuova();
     const n = stato.movimenti.length;
     const vecchio = !stato.ultimoBackup || (Date.now() - new Date(stato.ultimoBackup)) > 14 * GIORNO_MS;
     // la memoria quasi piena viene prima di tutto: va detto a Claude, che sposta i movimenti in una memoria più grande
@@ -2981,16 +3004,14 @@
   function applicaSfondo() {
     let id = pref.sfondo === 'giorno' ? sfondoDiOggi() : (pref.sfondo === 'nessuno' ? null : pref.sfondo);
     if (id && sfondi.length && !sfondi.some(x => x.id === id)) id = sfondoDiOggi();
-    const s = $('sfondo');
+    const s = $('sfondo'), sopra = $('sfondoSopra');
     const info = sfondi.find(x => x.id === id);
     $('sfondoNome').textContent = info ? info.nome : '';
     if (id) {
-      s.style.backgroundImage = 'url("sfondi/' + id + '.webp")';
-      s.classList.add('foto');
+      for (const x of [s, sopra]) { x.style.backgroundImage = 'url("sfondi/' + id + '.webp")'; x.classList.add('foto'); }
       if (pref.ultimoSfondo !== id) { pref.ultimoSfondo = id; scriviPref(); }
     } else {
-      s.style.backgroundImage = '';
-      s.classList.remove('foto');
+      for (const x of [s, sopra]) { x.style.backgroundImage = ''; x.classList.remove('foto'); }
     }
   }
   function filaSfondi(corpo) {
@@ -3803,7 +3824,7 @@
           const b = el('button', 'mov fisso-riga' + (r.attivo ? '' : ' in-pausa'));
           b.type = 'button';
           b.dataset.fisso = r.id;
-          b.appendChild(el('span', 'mov-icona', eSpostamento(r) ? '↔' : iconaDi(r.tipo, r.categoria)));
+          b.appendChild(riquadro(eSpostamento(r) ? '↔' : iconaDi(r.tipo, r.categoria)));
           const testi = el('span', 'mov-testi');
           testi.appendChild(el('span', 'mov-desc', r.descrizione));
           testi.appendChild(el('span', 'mov-cat', 'ogni ' + r.giorno + ' del mese · ' + (eSpostamento(r) ? etichettaConto(r) : infoConto(contoDi(r)).icona) + (r.attivo ? '' : ' · in pausa')));
@@ -3945,7 +3966,7 @@
       corpo.appendChild(date);
       const conti = el('div', 'segmentato largo conti-mov');
       conti.id = 'contoMovimenti';
-      const bConti = [[null, '∑ Tutti']].concat(A.CONTI.map(x => [x.id, x.icona + ' ' + x.nome])).map(([id, nome]) => {
+      const bConti = [[null, '💰 Tutti']].concat(A.CONTI.map(x => [x.id, x.icona + ' ' + x.nome])).map(([id, nome]) => {
         const b = tasto('', nome, () => { f.conto = id; f.mostrati = BLOCCO; aggiorna(true); });
         b.dataset.conto = id || '';
         conti.appendChild(b);
@@ -4099,6 +4120,7 @@
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(); });
   $('filtro').addEventListener('click', () => { vista.filtro = null; disegna(); });
   for (const tipo of TIPI_DATI) $(BARRE[tipo].altre).addEventListener('click', () => { vista.tutte[tipo] = !vista.tutte[tipo]; disegna(); });
+  document.addEventListener('touchstart', () => {}, { passive: true });   // sull'iPhone i tasti si sentono sotto il dito (:active) solo se qualcuno ascolta i tocchi
   $('occhio').addEventListener('click', () => cambiaOcchio());
   $('occhioSaldi').addEventListener('click', () => cambiaOcchio());
   // anche toccando i pallini del saldo («quando schiacci il saldo»)
