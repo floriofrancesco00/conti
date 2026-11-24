@@ -877,7 +877,7 @@
     const solo = analizza(tok.slice(0, i).map(t => t.orig).join(' '), opz);
     if (!(solo.importo > 0) || analizza(pezzo, opz).importo !== solo.importo) return false;
     if (PER_COSA.has(tok[i].norm)) return i + 1 < tok.length;
-    return dopoParola && cosaNota(tok[i].norm, opz) && quantoNonQuante(solo.importo, tok[i].norm, tok.slice(0, i));
+    return dopoParola && cosaNota(tok[i].norm, opz) && quantoNonQuante(solo.importo, tok[i].norm, tok.slice(0, i), opz);
   }
   // «45 benzina e 12 farmacia» (24/11/2026: i 12 si perdevano in silenzio): dopo il numero, senza «di» né «per», c'è una
   // parola che conosce. «12 farmacia» è quanto (una parola al singolare non si conta), «3 birre» e «3 spritz» sono quante.
@@ -893,11 +893,19 @@
   }
   const cosaNota = (parola, opz) => ['uscita', 'entrata'].some(tipo => paroleNote(elenco(tipo, (opz || {}).categorie)).has(parola));
   const SOLO_SPESE = new Set(['tabacchi', 'vestiti', 'detersivi', 'integratori', 'alimentari', 'trasporti', 'abbonamenti']);
-  function quantoNonQuante(centesimi, parola, numeri) {
+  // le parole in -e dell'elenco sono al singolare («parrucchiere», «patente») tranne queste
+  const PLURALI_E = new Set(['gomme', 'scarpe', 'sigarette', 'cartine', 'medicine', 'mediche', 'calze', 'lenti', 'proteine', 'pulizie', 'tasse', 'imposte',
+    'terme', 'cuffie', 'cedole', 'patatine', 'caramelle', 'spese', 'provvigioni', 'commissioni bancarie',
+    'caffe', 'brioche', 'crepe', 'poke']);
+  // al plurale e con un numero grosso non sono quante («e 30 scarpe»), salvo quelle che si comprano a decine
+  const A_DECINE = new Set(['sigarette', 'cartine', 'filtri', 'caramelle', 'biscotti', 'patatine', 'fiori', 'cioccolatini']);
+  const baseNota = (parola, opz) => ['uscita', 'entrata'].some(tipo => elenco(tipo, (opz || {}).categorie).some(c => normalizza(c.nome) === parola || c.parole.some(p => normalizza(p) === parola)));
+  function quantoNonQuante(centesimi, parola, numeri, opz) {
     if (centesimi % 100 || numeri.some(t => VALUTA.has(t.norm) || t.norm === '€' || /€/.test(t.orig))) return true;   // «12,50 farmacia», «12 euro farmacia»
     const n = centesimi / 100;
     if (/[ao]$/.test(parola)) return n > 1;
-    if (/[ie]$/.test(parola)) return n >= 5 && SOLO_SPESE.has(parola);
+    if (/e$/.test(parola) && !PLURALI_E.has(parola) && baseNota(parola, opz)) return n > 1;
+    if (/[ie]$/.test(parola)) return (n >= 5 && SOLO_SPESE.has(parola)) || (n >= 25 && !A_DECINE.has(parola));
     return n >= 10;   // «30 conad» è quanto, «3 spritz» quante
   }
   // l'ultima parola di un pezzo è un numero o «euro»? Allora «e 50» dopo può essere dei centesimi
@@ -944,9 +952,12 @@
     let m;
     while ((m = re.exec(testo))) {
       const sx = testo.slice(0, m.index), tok = tokenizza(testo.slice(m.index + m[0].length));
-      if (tok.length < 2 || !/^\d+$/.test(tok[0].norm) || !/^[a-z]{3,}[ao]$/.test(tok[1].norm) || PER_COSA.has(tok[1].norm) || VALUTA.has(tok[1].norm) || MESI.includes(tok[1].norm) || GIORNI.includes(tok[1].norm) || NON_CENTESIMI.has(tok[1].norm)) continue;
+      if (tok.length < 2 || !/^\d+$/.test(tok[0].norm) || !/^[a-z]{3,}$/.test(tok[1].norm) || (!/[ao]$/.test(tok[1].norm) && (Number(tok[0].norm) < 5 || !cosaNota(tok[1].norm, opz))) || PER_COSA.has(tok[1].norm) || VALUTA.has(tok[1].norm) || MESI.includes(tok[1].norm) || GIORNI.includes(tok[1].norm) || NON_CENTESIMI.has(tok[1].norm)) continue;
       const n = Number(tok[0].norm);
-      if (n > 1 && n < 10000 && !finisceConNumero(sx) && haImporto(sx, opz) && analizza(testo, opz).importo !== n * 100) return n * 100;
+      if (n > 1 && n < 10000 && !finisceConNumero(sx) && haImporto(sx, opz)) {
+        const preso = analizza(testo, opz).importo, altro = preso === n * 100 ? analizza(sx, opz).importo : n * 100;   // quello che non ha preso
+        if (altro !== preso) return altro;
+      }
     }
     return null;
   }

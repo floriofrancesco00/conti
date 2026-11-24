@@ -185,7 +185,7 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .anteprima-testo { flex: 1; min-width: 0; }
 .ant-importo { font-size: 30px; font-weight: 650; letter-spacing: -0.01em; }
 .ant-importo.manca { font-size: 18px; font-weight: 500; color: var(--testo-tenue); }
-.ant-descrizione { font-size: 15px; color: var(--testo-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ant-descrizione { font-size: 15px; color: var(--testo-2); overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .tasto-primario {
   min-height: 48px; min-width: 96px; padding: 0 20px; border: 0; border-radius: 14px;
   background: linear-gradient(180deg, color-mix(in srgb, var(--tasto) 88%, #fff), var(--tasto)); color: #fff; font-size: 17px; font-weight: 650;
@@ -230,7 +230,7 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .t-etichetta { font-size: 13px; color: var(--testo-2); display: flex; align-items: center; gap: 6px; }
 .tessere .t-etichetta::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--critico); flex-shrink: 0; }
 .tessere .tessera:first-child .t-etichetta::before { background: var(--positivo); }
-.t-valore { font-size: 19px; font-weight: 650; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.t-valore { font-size: clamp(14px, 4.6vw, 19px); letter-spacing: -0.01em; font-weight: 650; margin-top: 2px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .t-valore.entrata { color: var(--positivo); }
 
 .sezione { margin-top: 12px; }
@@ -686,7 +686,7 @@ body.voce-attiva .scorciatoie { display: none; }
 /* i riquadri che si aprono toccandoli */
 #sezAutonomia { cursor: pointer; }
 .tocca-dettagli { font-size: 13px; color: var(--legame); margin-top: 10px; font-weight: 600; }
-h3.apribile { cursor: pointer; }
+h3.apribile { cursor: pointer; padding: 8px 12px 8px 0; margin: -8px 0; }
 h3.apribile::after { content: " ›"; color: var(--testo-tenue); font-weight: 500; }
 .fissi-gruppo { margin-top: 12px; }
 .fissi-titolo { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; font-size: 15px; font-weight: 700; padding: 6px 2px; }

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.24-2203';
+  const VERSIONE = '2026.11.24-2321';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -333,7 +333,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'l’occhio suona a ogni tocco';
+  const NOVITA = 'ogni Salva ed Elimina suona, importi mai persi';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -469,6 +469,9 @@
   // ================================================================ foglio dal basso
   // Si chiude toccando il velo, col tasto Esc o trascinandolo in giù (dal 10/11/2026), come i fogli dell'iPhone.
   let alChiudereFoglio = null, timerFoglio = null;
+  // il foglio di sotto (modificando un movimento o un fisso si apre quello della categoria, del conto, del giorno):
+  // chiudendo quello sopra col dito si torna lì. Prima si chiudeva tutto e le correzioni scritte si perdevano (24/11/2026).
+  let foglioSotto = null;
   function apriFoglio(titolo, costruisci, alChiudere) {
     const corpo = $('foglioCorpo');
     // in cima prima di cambiare il contenuto: dopo, rimetterlo in cima costringeva a ricalcolare tutta la pagina
@@ -493,6 +496,9 @@
     if (!giaAperto) requestAnimationFrame(() => requestAnimationFrame(() => f.classList.remove('entra')));
   }
   function chiudiFoglio(animato) {
+    const sotto = foglioSotto;
+    foglioSotto = null;
+    if (animato && sotto) { alChiudereFoglio = null; sotto(); return; }
     const f = $('foglio'), v = $('velo');
     const cb = alChiudereFoglio;
     alChiudereFoglio = null;
@@ -1184,7 +1190,8 @@
         conto: vista.conto || A.CONTO_BASE };
     let sceltaMano = !nuovo, contoMano = !nuovo;
     let quando = 'questo';
-    const disegnaForm = () => apriFoglio(nuovo ? 'Nuovo movimento fisso' : 'Movimento fisso', corpo => {
+    const disegnaForm = () => { foglioSotto = null; disegnaFisso(); };
+    const disegnaFisso = () => apriFoglio(nuovo ? 'Nuovo movimento fisso' : 'Movimento fisso', corpo => {
       const inDesc = inputTesto(b.descrizione);
       inDesc.placeholder = 'Nome';
       inDesc.addEventListener('input', () => {
@@ -1224,6 +1231,7 @@
       });
       const chipK = tasto('chip chip-conto', etichettaConto(b), () => {
         leggi();
+        foglioSotto = disegnaForm;
         scegliConto(b, n => {
           sceltaMano = true; contoMano = true;
           if (n.tipo === 'spostamento') { b.tipo = 'spostamento'; b.categoria = A.SPOSTAMENTO; }
@@ -1234,6 +1242,7 @@
       });
       const chipC = tasto('chip', iconaDi(b.tipo, b.categoria) + ' ' + b.categoria, () => {
         leggi();
+        foglioSotto = disegnaForm;
         scegliCategoria(b.tipo, b.categoria, nome => { sceltaMano = true; b.categoria = nome; disegnaForm(); });
       });
       chipC.hidden = eSpostamento(b);
@@ -1264,6 +1273,7 @@
         aggiornaInArrivo(esistente, true);
         stato.ricorrenti = stato.ricorrenti.filter(r => r.id !== esistente.id);
         scrivi(); chiudiFoglio(); disegna();
+        suonaMovimento('elimina');
         if (dopo) dopo();
         mostraToast('Movimento fisso eliminato');
       }));
@@ -1288,6 +1298,7 @@
         chiudiFoglio();
         generaRicorrenti();
         disegna();
+        suonaMovimento(b.tipo);
         if (dopo) dopo();
         if (nuovo) mostraToast('Movimento fisso salvato: ogni ' + b.giorno + ' del mese');
       }));
@@ -1332,6 +1343,7 @@
     scrivi();
     generaRicorrenti();
     disegna();
+    suonaMovimento(m.tipo);
     mostraToast('Si ripeterà ogni ' + r.giorno + ' del mese');
   }
 
@@ -1507,7 +1519,7 @@
       }
       const riga = el('div', 'riga-tasti');
       if (solo && stato.saldi[solo]) riga.appendChild(tasto('tasto-secondario', 'Togli', () => {
-        stato.saldi[solo] = null; scrivi(); chiudiFoglio(); disegna();
+        stato.saldi[solo] = null; scrivi(); chiudiFoglio(); disegna(); suonaMovimento('elimina');
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
         const nuovi = [];
@@ -1529,6 +1541,7 @@
         }
         if (solo !== 'cripto') delete stato.saldi.daDividere;
         scrivi(); chiudiFoglio(); disegna();
+        suonaSaldo(solo || null);
         if (!scarti.length) { mostraToast(solo ? 'Saldo salvato' : 'Saldi salvati'); return; }
         // «Segna»: la differenza diventa un movimento di oggi, già compreso nel saldo appena scritto (creato un attimo prima)
         mostraToast(scarti.map(([id, d]) => infoConto(id).nome + ' ' + conSegno(d)).join(', ') + ' rispetto ai movimenti', 'Segna', () => {
@@ -1538,6 +1551,7 @@
             stato.movimenti.push({ id: nuovoId(), data: isoOggi(), tipo, importo: Math.abs(d), categoria: ripiegoDi(tipo), descrizione: 'Differenza di saldo', testo: '', creato, conto: id });
           }
           scrivi(); disegna();
+          suonaMovimento(scarti.some(([, d]) => d > 0) ? 'entrata' : 'uscita');
           mostraToast(scarti.length === 1 ? 'Segnata la differenza' : 'Segnate le differenze');
         }, 10000);
       }));
@@ -1706,6 +1720,7 @@
         const prima = JSON.stringify(stato);
         eliminaCategoria(tipo, esistente.nome);
         disegna(); rileggi();
+        suonaMovimento('elimina');
         fine(esistente.nome, rip);
         mostraToast('Eliminata «' + esistente.nome + '»', 'Annulla', () => { stato = JSON.parse(prima); scrivi(); disegna(); rileggi(); });
       }));
@@ -2175,7 +2190,8 @@
     const bozza = copiaConto({ tipo: orig.tipo, categoria: orig.categoria, data: orig.data, descrizione: orig.descrizione,
       importo: Math.abs(orig.importo), ripeti: false, giorno: daIso(orig.data).getDate() }, orig);
     const fissoDi = () => orig.ricorrente && stato.ricorrenti.find(r => r.id === orig.ricorrente);
-    const ridisegna = () => apriFoglio('Modifica movimento', corpo => {
+    const ridisegna = () => { foglioSotto = null; disegnaModifica(); };
+    const disegnaModifica = () => apriFoglio('Modifica movimento', corpo => {
       // quello che ha scritto resta anche passando da un altro foglio (se è scritto male, lo dice Salva)
       const inImp = inputTesto(bozza.scritto !== undefined ? bozza.scritto : formatoPerCampo(bozza.importo), 'decimal');
       inImp.id = 'modImporto';
@@ -2199,6 +2215,7 @@
       }));
       const chipK = tasto('chip chip-conto', etichettaConto(bozza), () => {
         leggiCampi();
+        foglioSotto = ridisegna;
         scegliConto(bozza, n => {
           if (n.tipo === 'spostamento') { bozza.tipo = 'spostamento'; bozza.categoria = A.SPOSTAMENTO; }
           else if (eSpostamento(bozza)) { bozza.tipo = n.tipo; bozza.categoria = ripiegoDi(n.tipo); }
@@ -2210,10 +2227,12 @@
       g.appendChild(chipK);
       if (!eSpostamento(bozza)) g.appendChild(tasto('chip', iconaDi(bozza.tipo, bozza.categoria) + ' ' + bozza.categoria, () => {
         leggiCampi();
+        foglioSotto = ridisegna;
         scegliCategoria(bozza.tipo, bozza.categoria, nome => { bozza.categoria = nome; ridisegna(); });
       }));
       g.appendChild(tasto('chip', etichettaQuando(bozza), () => {
         leggiCampi();
+        foglioSotto = ridisegna;
         // la spesa ricorrente si sceglie qui solo se non è già un fisso (per quelli c'è il tasto sotto)
         scegliData(bozza.data, iso => { bozza.data = iso; ridisegna(); },
           fissoDi() ? null : { acceso: bozza.ripeti, giorno: bozza.giorno, senzaInizio: true,
@@ -2267,6 +2286,7 @@
         scrivi();
         chiudiFoglio();
         disegna();
+        suonaMovimento(orig.tipo);   // Salva suona sempre, non solo la prima volta (24/11/2026)
         if (dopo) { dopo(); return; }
         mostraToast('Modifica salvata');
       }));
@@ -3460,7 +3480,9 @@
   const suonoSigla = () => scelta(S ? S.SIGLE : [], pref.suonoSigla, 'sigla-oro');
   const suonoSaldo = () => scelta(S ? S.SALDO : [], pref.suonoSaldo, 'saldo-devastante');
   const suoniMovimenti = () => pref.suoniMovimenti !== false;
-  function suonaMovimento(nome) { if (S && suoniMovimenti() && statoVoce === 'fermo') S.suona(nome); }
+  // col microfono aperto niente suoni (li registrerebbe); mentre scarica o trascrive sì: prima tacevano anche lì (24/11/2026)
+  const micAperto = () => statoVoce === 'ascolto';
+  function suonaMovimento(nome) { if (S && suoniMovimenti() && !micAperto()) S.suona(nome); }
   let togliSigla = null, nascostaDa = 0;
   function sigla() {
     if (!S) return;
@@ -3474,7 +3496,7 @@
       togliSigla = S.alPrimoTocco(e => {
         togliSigla = null;
         const t = e && e.target && e.target.closest ? e.target : null;
-        if (statoVoce !== 'fermo' || (t && t.closest('#microfono'))) return;
+        if (micAperto() || (t && t.closest('#microfono'))) return;
         brillaTitolo();
         if (t && t.closest('#occhio, #occhioSaldi, #heroValore')) return;   // quel tasto ha il suo suono, e vince lui
         S.suona(nome);
@@ -3487,7 +3509,7 @@
   // 18/11/2026: «un rumore diverso quando schiaccio l'occhio su digitale rispetto a contanti e cripto»: guardando un
   // conto, il suo (banconote, il bip del POS, una moneta digitale); su «Tutto» quello scelto. «Nessuno» li spegne tutti.
   function suonaSaldo(conto) {
-    if (!S || statoVoce !== 'fermo' || suonoSaldo() === 'nessuno') return;
+    if (!S || micAperto() || suonoSaldo() === 'nessuno') return;
     const c = conto === undefined ? vista.conto : conto;
     S.suona(c && S.CONTI[c] ? S.CONTI[c] : suonoSaldo());
   }
@@ -4120,7 +4142,7 @@
   $('bannerEsporta').addEventListener('click', () => apriEsporta('tutto'));
   $('modSaldo').addEventListener('click', () => apriSaldo(vista.conto || undefined));
   $('velo').addEventListener('click', chiudiFoglio);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(true); });
   $('filtro').addEventListener('click', () => { vista.filtro = null; disegna(); });
   for (const tipo of TIPI_DATI) $(BARRE[tipo].altre).addEventListener('click', () => { vista.tutte[tipo] = !vista.tutte[tipo]; disegna(); });
   document.addEventListener('touchstart', () => {}, { passive: true });   // sull'iPhone i tasti si sentono sotto il dito (:active) solo se qualcuno ascolta i tocchi
@@ -4249,7 +4271,7 @@
     versione: VERSIONE, edizione: ED, stato: () => stato, pref: () => pref, testoEsportazione, testoLeggibile, importaTesto,
     generaRicorrenti, saldoAttuale, liquidi, fondoTasse, speseMedie, totaleFissi, rinomina, aggiungiCategoria, eliminaCategoria,
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
-    vista: () => vista, scegliVistaConto, saldoVisibile: () => saldoVisibile,
+    vista: () => vista, faseVoce: fase, scegliVistaConto, saldoVisibile: () => saldoVisibile,
     controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriMovimenti, apriSuoni, spazioUsato,
     apriAutonomia, apriFeste, elencoCopie, salvaCopia, nuovoGiorno, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
   };
