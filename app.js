@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.24-1346';
+  const VERSIONE = '2026.11.24-1700';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -333,7 +333,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'conti ricontrollati, copie automatiche, aspetto più pulito';
+  const NOVITA = 'entrate per categoria';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -1629,7 +1629,7 @@
         if (v.tipo === tipo && v.categoria === vecchio) v.categoria = nuovo;
       }
       if (tipo === 'entrata') stato.tasse.categorie = stato.tasse.categorie.map(c => (c === vecchio ? nuovo : c));
-      if (vista.filtro === vecchio) vista.filtro = nuovo;
+      if (eFiltro(tipo, vecchio)) vista.filtro = { tipo, nome: nuovo };
       for (const s of scelte) if (s.categoria === vecchio) s.categoria = nuovo;
     }
     scrivi();
@@ -1658,7 +1658,7 @@
       if (v.tipo === tipo && v.categoria === nome) delete stato.imparate[k];
     }
     if (tipo === 'entrata') stato.tasse.categorie = stato.tasse.categorie.filter(c => c !== nome);
-    if (vista.filtro === nome) vista.filtro = null;
+    if (eFiltro(tipo, nome)) vista.filtro = null;
     for (const s of scelte) if (s.categoria === nome) delete s.categoria;
     scrivi();
   }
@@ -1758,7 +1758,10 @@
 
   // ================================================================ periodo e riepilogo
   // conto: null = tutti insieme, se no il conto che sta guardando (la «seconda modalità» del 15/11/2026)
-  const vista = { modo: 'mese', anno: oggi().getFullYear(), mese: oggi().getMonth(), filtro: null, conto: null };
+  // filtro: { tipo, nome } della barra toccata (una categoria può chiamarsi uguale nelle spese e nelle entrate)
+  // tutte: per tipo, se le barre oltre le prime sei sono aperte
+  const vista = { modo: 'mese', anno: oggi().getFullYear(), mese: oggi().getMonth(), filtro: null, conto: null, tutte: {} };
+  const eFiltro = (tipo, nome) => !!vista.filtro && vista.filtro.tipo === tipo && vista.filtro.nome === nome;
 
   function nelPeriodo(m) {
     return m.data.startsWith(vista.modo === 'anno' ? vista.anno + '-' : vista.anno + '-' + String(vista.mese + 1).padStart(2, '0') + '-');
@@ -1896,7 +1899,8 @@
       rs.hidden = false;
     } else rs.hidden = true;
 
-    disegnaBarre(lista, t.uscite);
+    disegnaBarre('uscita', lista, t.uscite);
+    disegnaBarre('entrata', lista, t.entrate);
     $('sezMesi').hidden = vista.modo !== 'anno';
     if (vista.modo === 'anno') disegnaMesi();
     disegnaLista(lista);
@@ -1938,30 +1942,37 @@
     disegna();
   }
 
-  function disegnaBarre(lista, totUscite) {
-    const ol = $('barre');
+  // Le spese per categoria e, dal 24/11/2026, le entrate: «nello stesso identico modo», quindi un disegno solo per tutte e due.
+  const BARRE = {
+    uscita: { barre: 'barre', titolo: 'titoloCategorie', altre: 'barreAltre', nome: 'Spese', quota: 'delle uscite', vuoto: 'Nessuna spesa in questo periodo.' },
+    entrata: { barre: 'barreEntrate', titolo: 'titoloEntrate', altre: 'barreEntrateAltre', nome: 'Entrate', quota: 'delle entrate', vuoto: 'Nessuna entrata in questo periodo.' }
+  };
+  function disegnaBarre(tipo, lista, totale) {
+    const B = BARRE[tipo];
+    const ol = $(B.barre), altre = $(B.altre);
     ol.textContent = '';
-    $('titoloCategorie').textContent = vista.conto ? 'Spese ' + inConto(vista.conto) : 'Spese per categoria';
+    $(B.titolo).textContent = B.nome + ' ' + (vista.conto ? inConto(vista.conto) : 'per categoria');
     const somme = new Map();
-    for (const m of lista) if (m.tipo === 'uscita') somme.set(m.categoria, (somme.get(m.categoria) || 0) + m.importo);
+    for (const m of lista) if (m.tipo === tipo) somme.set(m.categoria, (somme.get(m.categoria) || 0) + m.importo);
     const righe = [...somme.entries()].sort((a, b) => b[1] - a[1]);
-    $('barreAltre').hidden = true;
+    altre.hidden = true;
     if (!righe.length) {
-      ol.appendChild(el('li', 'vuoto', 'Nessuna spesa in questo periodo.'));
+      ol.classList.remove('corte');
+      ol.appendChild(el('li', 'vuoto', B.vuoto));
       return;
     }
     const max = righe[0][1];
-    const corte = righe.length > 8 && !vista.tutteBarre && !righe.slice(6).some(([n]) => n === vista.filtro);
+    const corte = righe.length > 8 && !vista.tutte[tipo] && !righe.slice(6).some(([n]) => eFiltro(tipo, n));
     ol.classList.toggle('corte', corte);
     for (const [nome, cent] of righe) {
       const li = el('li');
       const b = el('button', 'barra-riga');
       b.type = 'button';
-      b.setAttribute('aria-pressed', String(vista.filtro === nome));
-      const quota = percento(cent, totUscite);
-      b.setAttribute('aria-label', nome + ': ' + euro(cent) + ', ' + quota + ' delle uscite. Tocca per vedere i movimenti.');
+      b.setAttribute('aria-pressed', String(eFiltro(tipo, nome)));
+      const quota = percento(cent, totale);
+      b.setAttribute('aria-label', nome + ': ' + euro(cent) + ', ' + quota + ' ' + B.quota + '. Tocca per vedere i movimenti.');
       const testi = el('div', 'barra-testi');
-      testi.appendChild(el('span', 'barra-nome', iconaDi('uscita', nome) + ' ' + nome));
+      testi.appendChild(el('span', 'barra-nome', iconaDi(tipo, nome) + ' ' + nome));
       const val = el('span', 'barra-valore', euro(cent));
       val.appendChild(el('span', 'barra-quota', quota));
       testi.appendChild(val);
@@ -1971,12 +1982,12 @@
       segno.style.width = Math.max(1, cent / max * 100) + '%';
       pista.appendChild(segno);
       b.appendChild(pista);
-      b.addEventListener('click', () => { vista.filtro = vista.filtro === nome ? null : nome; disegna(); });
+      b.addEventListener('click', () => { vista.filtro = eFiltro(tipo, nome) ? null : { tipo, nome }; disegna(); });
       li.appendChild(b);
       ol.appendChild(li);
     }
-    $('barreAltre').hidden = righe.length <= 8 || (!corte && !vista.tutteBarre);
-    $('barreAltre').textContent = corte ? 'Altre ' + (righe.length - 6) + ' categorie ›' : 'Solo le prime';
+    altre.hidden = righe.length <= 8 || (!corte && !vista.tutte[tipo]);
+    altre.textContent = corte ? 'Altre ' + (righe.length - 6) + ' categorie ›' : 'Solo le prime';
   }
 
   function disegnaMesi() {
@@ -2064,8 +2075,8 @@
     const filtro = $('filtro');
     $('titoloMovimenti').textContent = 'Ultimi movimenti' + (vista.conto ? ' ' + inConto(vista.conto) : '');
     filtro.hidden = !vista.filtro;
-    if (vista.filtro) filtro.textContent = 'Solo ' + vista.filtro;
-    let righe = vista.filtro ? lista.filter(m => m.tipo === 'uscita' && m.categoria === vista.filtro) : lista;
+    if (vista.filtro) filtro.textContent = 'Solo ' + vista.filtro.nome;
+    let righe = vista.filtro ? lista.filter(m => eFiltro(m.tipo, m.categoria)) : lista;
     righe = righe.slice().sort(piuRecenti);
     const oggiIso = isoOggi();
     const inArrivo = righe.filter(m => m.data > oggiIso), fatti = righe.filter(m => m.data <= oggiIso);
@@ -3892,7 +3903,7 @@
     return [null, null];
   }
   const BLOCCO = 80;
-  // opz: { periodo, da, a, conto, categoria, testo, cerca (cursore nella ricerca), filtri (per tornare com'era) }
+  // opz: { periodo, da, a, conto, categoria ({ tipo, nome }), testo, cerca (cursore nella ricerca), filtri (per tornare com'era) }
   function apriMovimenti(opz) {
     opz = opz || {};
     const f = opz.filtri || { testo: opz.testo || '', periodo: opz.periodo || 'tutto', da: opz.da || null, a: opz.a || null,
@@ -3993,9 +4004,9 @@
         bottoni.forEach(b => b.setAttribute('aria-pressed', String(b.dataset.periodo === f.periodo)));
         bConti.forEach(b => b.setAttribute('aria-pressed', String((b.dataset.conto || null) === f.conto)));
         cat.hidden = !f.categoria;
-        cat.textContent = f.categoria ? 'Solo ' + f.categoria : '';
+        cat.textContent = f.categoria ? 'Solo ' + f.categoria.nome : '';
         const base = stato.movimenti.filter(m => (!da || m.data >= da) && (!a || m.data <= a) && tocca(m, f.conto) &&
-          (!f.categoria || (m.tipo === 'uscita' && m.categoria === f.categoria)));
+          (!f.categoria || (m.tipo === f.categoria.tipo && m.categoria === f.categoria.nome)));
         let primo = '9999', ultimo = '';
         for (const m of base) { if (m.data < primo) primo = m.data; if (m.data > ultimo) ultimo = m.data; }
         inDa.value = da || (base.length ? primo : isoOggi());
@@ -4030,7 +4041,7 @@
     // dalla lente: il cursore nella ricerca, dentro il tocco (sull'iPhone così si apre la tastiera)
     if (opz.cerca) { const i = $('testoCerca'); i.focus(); i.select(); }
   }
-  // il resoconto in cima: quanti, entrate, uscite, la differenza dietro l'occhio e le uscite per categoria
+  // il resoconto in cima: quanti, entrate, uscite, la differenza dietro l'occhio, le uscite e le entrate per categoria
   function disegnaResoconto(box, righe, f, r, da, a, ridisegna) {
     box.textContent = '';
     const t = totali(righe, f.conto);
@@ -4051,15 +4062,20 @@
     diff.appendChild(el('span', '', f.conto && (t.arrivati || t.partiti) ? 'Entrate meno uscite, più gli spostamenti' : 'Entrate meno uscite'));
     diff.appendChild(el('span', 'res-saldo-valore', saldoConSegno(t.saldo)));
     box.appendChild(diff);
-    const somme = new Map();
-    for (const m of righe) if (m.tipo === 'uscita' && (!f.conto || contoDi(m) === f.conto)) somme.set(m.categoria, (somme.get(m.categoria) || 0) + m.importo);
-    const cat = [...somme.entries()].sort((x, y) => y[1] - x[1]);
-    if (cat.length > 1) {
+    const gruppi = [];
+    for (const [tipo, tot] of [['uscita', t.uscite], ['entrata', t.entrate]]) {
+      const somme = new Map();
+      for (const m of righe) if (m.tipo === tipo && (!f.conto || contoDi(m) === f.conto)) somme.set(m.categoria, (somme.get(m.categoria) || 0) + m.importo);
+      if (somme.size > 1) gruppi.push([tipo, tot, [...somme.entries()].sort((x, y) => y[1] - x[1])]);
+    }
+    for (const [tipo, tot, cat] of gruppi) {
+      if (gruppi.length > 1) box.appendChild(el('p', 'res-cat-titolo', BARRE[tipo].nome + ' per categoria'));
       const ol = el('ol', 'res-categorie');
+      ol.dataset.tipo = tipo;
       for (const [nome, cent] of cat.slice(0, 5)) {
         const li = el('li');
-        li.appendChild(el('span', 'res-cat-nome', iconaDi('uscita', nome) + ' ' + nome));
-        li.appendChild(el('span', 'res-cat-valore', euro(cent) + ' · ' + percento(cent, t.uscite)));
+        li.appendChild(el('span', 'res-cat-nome', iconaDi(tipo, nome) + ' ' + nome));
+        li.appendChild(el('span', 'res-cat-valore', euro(cent) + ' · ' + percento(cent, tot)));
         ol.appendChild(li);
       }
       if (cat.length > 5) ol.appendChild(el('li', 'res-cat-altre', 'e altre ' + (cat.length - 5) + ' categorie'));
@@ -4082,7 +4098,7 @@
   $('velo').addEventListener('click', chiudiFoglio);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(); });
   $('filtro').addEventListener('click', () => { vista.filtro = null; disegna(); });
-  $('barreAltre').addEventListener('click', () => { vista.tutteBarre = !vista.tutteBarre; disegna(); });
+  for (const tipo of TIPI_DATI) $(BARRE[tipo].altre).addEventListener('click', () => { vista.tutte[tipo] = !vista.tutte[tipo]; disegna(); });
   $('occhio').addEventListener('click', () => cambiaOcchio());
   $('occhioSaldi').addEventListener('click', () => cambiaOcchio());
   // anche toccando i pallini del saldo («quando schiacci il saldo»)

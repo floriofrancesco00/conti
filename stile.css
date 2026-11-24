@@ -222,7 +222,8 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .barre { list-style: none; margin: 0; padding: 0; }
 .barre li + li { margin-top: 2px; }
 .barra-riga {
-  width: 100%; border: 0; background: transparent; text-align: left; padding: 8px 0; border-radius: 10px;
+  /* un filo più larga del riquadro: il testo resta allineato, ma la riga accesa non gli sta attaccata */
+  width: calc(100% + 16px); margin: 0 -8px; border: 0; background: transparent; text-align: left; padding: 8px; border-radius: 12px;
   display: block;
 }
 .barra-riga:active, .barra-riga[aria-pressed="true"] { background: var(--superficie-2); }
@@ -560,6 +561,8 @@ body.voce-attiva .scorciatoie { display: none; }
   border: 0; border-top: 1px solid var(--filo); background: transparent; font-size: 15px; color: var(--testo-2); text-align: left;
 }
 .res-saldo-valore { font-weight: 650; color: var(--testo); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.resoconto .res-cat-titolo { margin: 12px 0 0; font-size: 13px; font-weight: 600; color: var(--testo-2); }
+.res-cat-titolo + .res-categorie { margin-top: 2px; }
 .res-categorie { list-style: none; margin: 8px 0 0; padding: 0; }
 .res-categorie li { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 5px 2px; border-top: 1px solid var(--filo); }
 .res-cat-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
