@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.20-1245';
+  const VERSIONE = '2026.11.24-1230';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -288,11 +288,11 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'suoni rifatti: ripartono sempre, anche dopo chiamate, cuffie e sottofondo';
+  const NOVITA = 'suoni: tolta la causa che li faceva ammutolire';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
-  const puoRicaricare = () => !campoFrase.value.trim() && statoVoce === 'fermo' &&
+  const puoRicaricare = () => !campoFrase.value.trim() && statoVoce === 'fermo' && !(S && S.staSuonando()) &&
     ($('toast').hidden || $('toastAzione').hidden || $('toastAzione').textContent !== 'Annulla');
   function ricarica() {
     // mai in giro tondo: se due ricariche di fila non portano la versione nuova, ci si ferma fino alla prossima apertura
@@ -2882,6 +2882,7 @@
     } else if (testo !== undefined) mostraStatoVoce(testo);
   }
   function fineVoce() {
+    if (S) S.libera();   // il microfono ha finito: i suoni possono tornare (24/11/2026)
     fase('fermo');
     ascoltoInCorso = null;
     onda.length = 0;
@@ -3072,7 +3073,7 @@
         alTempo: (s, sentito) => { if (statoVoce === 'ascolto') mostraStatoVoce((sentito ? '🔴 ' : '🎙️ ') + tempo(s) + (sentito ? ' · tocca ■ quando hai finito' : ' · parla pure')); },
         alTesto: testo => { if (statoVoce !== 'ascolto') return; campoFrase.value = unisciFrase(prima, testo); rileggi(); }
       });
-    } catch (e) { appleNonVa(e); return; }
+    } catch (e) { if (S) S.libera(); appleNonVa(e); return; }
     ascoltoInCorso = a;
     fase('ascolto');
     onda.length = 0;
@@ -3110,12 +3111,12 @@
   async function microfono() {
     if (statoVoce === 'ascolto') { if (ascoltoInCorso) ascoltoInCorso.ferma(); return; }
     if (statoVoce !== 'fermo') return;
-    if (S) S.ferma();   // l'audio dei suoni in pausa: il microfono tutto al riconoscimento (17/11/2026)
-    if (usaApple()) { microfonoApple(); return; }
+    if (usaApple()) { if (S) S.ferma(); microfonoApple(); return; }   // niente suoni: il microfono tutto al riconoscimento
     if (!V || !V.disponibile) { guidaDettatura('Questo telefono non lascia usare il microfono all\'app.'); return; }
     const chiave = modelloVoce();
     if (!chiave) { chiediScaricamento(); return; }
     let a;
+    if (S) S.ferma();
     try {
       // dentro il tocco: sull'iPhone l'audio si apre solo da un gesto
       a = V.ascolta({
@@ -3126,7 +3127,7 @@
           mostraStatoVoce((parlato ? '🔴 ' : '🎙️ ') + tempo + (parlato ? ' · tocca ■ quando hai finito' : ' · parla pure'), l);
         }
       });
-    } catch (e) { erroreMicrofono(e); return; }
+    } catch (e) { if (S) S.libera(); erroreMicrofono(e); return; }
     ascoltoInCorso = a;
     fase('ascolto');
     onda.length = 0;
@@ -3197,7 +3198,6 @@
         togliSigla = null;
         const t = e && e.target && e.target.closest ? e.target : null;
         if (statoVoce !== 'fermo' || (t && t.closest('#microfono'))) return;
-        S.sblocca();
         S.suona(nome);
         brillaTitolo();
       }, 12000);
@@ -3209,7 +3209,6 @@
   function suonaSaldo(conto) {
     if (!S || statoVoce !== 'fermo' || suonoSaldo() === 'nessuno') return;
     const c = conto === undefined ? vista.conto : conto;
-    S.sblocca();
     S.suona(c && S.CONTI[c] ? S.CONTI[c] : suonoSaldo(), { inCoda: true });
   }
   // «Devastanti» si accende: all'apertura, e di nuovo con la sigla
@@ -3260,7 +3259,6 @@
     apriFoglio('Suoni del creatore', corpo => {
       const tutti = TAVOLA_SUONI.flatMap(([, l]) => l);
       const suona = (b, id) => {
-        S.sblocca();
         S.suona(id);
         b.classList.remove('suona');
         void b.offsetWidth;   // per far ripartire l'animazione
@@ -3298,7 +3296,6 @@
           const b = tasto('azione scelta-suono', (a.id === attuale ? '✓ ' : '') + a.nome, () => {
             salva(a.id);
             scriviPref();
-            S.sblocca();
             if (a.id !== 'nessuno') S.suona(a.id);
             if (a.id.startsWith('sigla-')) brillaTitolo();
             apriSuoni();
@@ -3320,7 +3317,7 @@
       const pc = el('div', 'chips');
       pc.style.marginTop = '8px';
       for (const [c, cosa] of [['contanti', '💶 Banconote'], ['digitale', '💳 POS'], ['cripto', '🪙 Moneta digitale']]) {
-        const b = tasto('chip senza-freccia', '▶ ' + cosa, () => { S.sblocca(); S.suona(S.CONTI[c]); });
+        const b = tasto('chip senza-freccia', '▶ ' + cosa, () => S.suona(S.CONTI[c]));
         b.dataset.suonoConto = c;
         pc.appendChild(b);
       }
@@ -3333,10 +3330,20 @@
       const prove = el('div', 'chips');
       prove.style.marginTop = '10px';
       for (const [nome, cosa] of [['entrata', '💰 Entrata'], ['uscita', '🪙 Uscita'], ['spostamento', '↔ Spostamento'], ['elimina', '🗑️ Elimina']]) {
-        prove.appendChild(tasto('chip senza-freccia', '▶ ' + cosa, () => { S.sblocca(); S.suona(nome); }));
+        prove.appendChild(tasto('chip senza-freccia', '▶ ' + cosa, () => S.suona(nome)));
       }
       corpo.appendChild(prove);
-      corpo.appendChild(el('p', 'nota', 'Col silenzioso non suonano.'));
+      const sal = S.salute();
+      corpo.appendChild(el('p', 'nota', 'Col silenzioso non suonano.' + (ED.nome === 'principale' && sal.chiesti
+        ? ' Persi ' + sal.persi + ' su ' + sal.chiesti + (sal.ms.length ? ', in media ' + secondi(sal.ms.reduce((x, y) => x + y, 0) / sal.ms.length) : '') + '.' : '')));
+      if (ED.nome === 'principale') {
+        const dia = tasto('tasto-secondario', 'Copia diagnosi', async () => {
+          mostraToast((await copiaTesto(S.diario())) === false ? 'Non copiato' : 'Copiata');
+        });
+        dia.id = 'copiaDiagnosi';
+        dia.style.margin = '16px 10px 0 0';
+        corpo.appendChild(dia);
+      }
       const cred = tasto('tasto-secondario', 'Da dove vengono', apriCrediti);
       cred.style.marginTop = '16px';
       corpo.appendChild(cred);
@@ -3398,7 +3405,7 @@
     disegnaGiornata();
     brillaTitolo();
     pioggiaFesta(f);
-    if (S && suonoSigla() !== 'nessuno') { S.sblocca(); S.suona(f.suono || suonoSigla()); }
+    if (S && suonoSigla() !== 'nessuno') S.suona(f.suono || suonoSigla());
     setTimeout(() => { festaProva = null; disegnaGiornata(); }, 9100);
   }
   function apriFeste() {
@@ -3893,8 +3900,12 @@
   brillaTitolo();
   sigla();
   pioggiaFesta(festaDiOggi());
-  // i suoni si scaricano e si decodificano quando l'app è ferma (dal service worker, anche senza rete)
-  if (S) (window.requestIdleCallback ? f => requestIdleCallback(f, { timeout: 3000 }) : f => setTimeout(f, 800))(() => S.prepara());
+  // i suoni si scaricano e si decodificano appena aperta (dal service worker, anche senza rete): prima quelli che possono
+  // servire al primo tocco, se no la sigla e il primo saldo arrivavano tardi (24/11/2026)
+  if (S) {
+    const f = festaDiOggi();
+    S.prepara([f && f.suono, suonoSigla(), suonoSaldo()].concat(Object.values(S.CONTI), ['uscita', 'entrata', 'spostamento', 'elimina']).filter(Boolean));
+  }
 
   // ================================================================ funzionamento senza rete
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {
