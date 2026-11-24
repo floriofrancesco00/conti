@@ -2,7 +2,7 @@
  {
   "id": "saldo-devastante",
   "nome": "Devastante",
-  "secondi": 1.61,
+  "secondi": 1.6,
   "fonti": [
    {
     "titolo": "Cinematic Impact",
@@ -21,7 +21,7 @@
  {
   "id": "saldo-cassa",
   "nome": "Cassa",
-  "secondi": 1.35,
+  "secondi": 1.31,
   "fonti": [
    {
     "titolo": "Cash Register Purchase",
@@ -79,7 +79,7 @@
  {
   "id": "sigla-corno",
   "nome": "Corno di guerra",
-  "secondi": 2.6,
+  "secondi": 2.52,
   "fonti": [
    {
     "titolo": "War Horn Blast",
@@ -92,7 +92,7 @@
  {
   "id": "sigla-tada",
   "nome": "Ta-da",
-  "secondi": 1.45,
+  "secondi": 1.43,
   "fonti": [
    {
     "titolo": "Tada Fanfare A",
@@ -105,7 +105,7 @@
  {
   "id": "saldo-contanti",
   "nome": "Banconote",
-  "secondi": 1.3,
+  "secondi": 1.29,
   "fonti": [
    {
     "titolo": "banknote-counter.wav",
@@ -118,7 +118,7 @@
  {
   "id": "saldo-digitale",
   "nome": "POS",
-  "secondi": 0.8,
+  "secondi": 0.65,
   "fonti": [
    {
     "titolo": "Contactloos betalen pinnen pinautomaat payment",
@@ -144,7 +144,7 @@
  {
   "id": "festa-natale",
   "nome": "Sonagli",
-  "secondi": 2.6,
+  "secondi": 2.53,
   "fonti": [
    {
     "titolo": "Sleigh_Bells (7-22-12 edit).mp3",
@@ -157,7 +157,7 @@
  {
   "id": "festa-capodanno",
   "nome": "Tappo e trombetta",
-  "secondi": 1.28,
+  "secondi": 1.14,
   "fonti": [
    {
     "titolo": "Popping the cork off a champagne bottle: Loud pop, light bubbles. Slight reverb tail. Recorded with ZoomH6, with Rifle Microphone, a compressor was used to ensure no clipping.",
@@ -176,7 +176,7 @@
  {
   "id": "festa-trombetta",
   "nome": "Trombetta",
-  "secondi": 1.0,
+  "secondi": 0.99,
   "fonti": [
    {
     "titolo": "Party horn.wav",
@@ -189,7 +189,7 @@
  {
   "id": "festa-halloween",
   "nome": "Strega",
-  "secondi": 2.6,
+  "secondi": 2.56,
   "fonti": [
    {
     "titolo": "Witch's Laugh.wav",
@@ -202,7 +202,7 @@
  {
   "id": "festa-pasqua",
   "nome": "Campane",
-  "secondi": 3.0,
+  "secondi": 2.96,
   "fonti": [
    {
     "titolo": "Old Church Bell.wav",
@@ -215,7 +215,7 @@
  {
   "id": "entrata",
   "nome": null,
-  "secondi": 1.05,
+  "secondi": 1.01,
   "fonti": [
    {
     "titolo": "Cash Register Purchase",
@@ -228,7 +228,7 @@
  {
   "id": "uscita",
   "nome": null,
-  "secondi": 0.8,
+  "secondi": 0.77,
   "fonti": [
    {
     "titolo": "handleCoins.ogg (rpg-audio)",
@@ -241,7 +241,7 @@
  {
   "id": "spostamento",
   "nome": null,
-  "secondi": 0.43,
+  "secondi": 0.42,
   "fonti": [
    {
     "titolo": "Whoosh",
@@ -254,7 +254,7 @@
  {
   "id": "elimina",
   "nome": null,
-  "secondi": 0.62,
+  "secondi": 0.61,
   "fonti": [
    {
     "titolo": "crumple.wav",

@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.24-1917';
+  const VERSIONE = '2026.11.24-2203';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -333,7 +333,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'estetica rinnovata, più spese in una frase';
+  const NOVITA = 'l’occhio suona a ogni tocco';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -1923,12 +1923,12 @@
     }
     $('occhioSaldi').hidden = $('modSaldo').hidden;   // senza saldi inseriti non c'è niente da nascondere
   }
-  // mostrando il saldo, il suo suono (17/11/2026 sera: «dovrebbe potersi sentire ogni volta che ci schiacci»)
+  // il suono a ogni tocco (17/11/2026 sera: «dovrebbe potersi sentire ogni volta che ci schiacci»)
   // conto: quello che si guarda (di solito quello della pagina): ogni conto ha il suo suono (18/11/2026)
   function cambiaOcchio(v, conto) {
     const prima = saldoVisibile;
     saldoVisibile = v === undefined ? !saldoVisibile : !!v;
-    if (saldoVisibile && !prima) suonaSaldo(conto);
+    if (saldoVisibile !== prima) suonaSaldo(conto);
     disegna();
     if (saldoVisibile && !prima) svela($('heroValore'));
   }
@@ -3448,7 +3448,7 @@
   //  - il suono del saldo (Devastante, Cassa, Tesoro) a ogni tocco che mostra il saldo;
   //  - la sigla all'apertura: prima si prova a suonarla subito; se l'iPhone non lo lascia fare senza un tocco (Web Audio
   //    chiede un gesto), parte al primo tocco entro 12 secondi. Cosa è successo resta in pref.siglaSubito, e lo si
-  //    legge in Menù → Suoni. Se il primo tocco è l'occhio: prima la sigla, poi il saldo (in coda). Mai sopra il
+  //    legge in Menù → Suoni. Se il primo tocco è l'occhio suona l'occhio, non la sigla. Mai sopra il
   //    microfono (lo registrerebbe) e mai mentre ascolta. Tornando sull'app dopo almeno 3 minuti, di nuovo.
   const scelta = (lista, v, base) => (S && lista.some(a => a.id === v) ? v : base);
   // la scelta fatta il 17/11 («apertura-…») era il suono che ha sentito sul saldo: passa al saldo
@@ -3475,18 +3475,21 @@
         togliSigla = null;
         const t = e && e.target && e.target.closest ? e.target : null;
         if (statoVoce !== 'fermo' || (t && t.closest('#microfono'))) return;
-        S.suona(nome);
         brillaTitolo();
+        if (t && t.closest('#occhio, #occhioSaldi, #heroValore')) return;   // quel tasto ha il suo suono, e vince lui
+        S.suona(nome);
       }, 12000);
     });
   }
-  // il saldo mostrato: il suo suono, ogni volta (dopo la sigla, se sta ancora suonando)
+  // l'occhio: il suo suono A OGNI TOCCO, che scopra o ricopra, e subito, anche sopra la sigla (24/11/2026 sera). Prima
+  // suonava solo scoprendo e aspettava la fine della sigla: usandola davvero, 4 tocchi su 10 erano muti, e su Contanti
+  // quasi sempre (il saldo era già scoperto da «Tutto»). «Escono solo entrate, uscite e cestino»: erano gli unici senza regole.
   // 18/11/2026: «un rumore diverso quando schiaccio l'occhio su digitale rispetto a contanti e cripto»: guardando un
   // conto, il suo (banconote, il bip del POS, una moneta digitale); su «Tutto» quello scelto. «Nessuno» li spegne tutti.
   function suonaSaldo(conto) {
     if (!S || statoVoce !== 'fermo' || suonoSaldo() === 'nessuno') return;
     const c = conto === undefined ? vista.conto : conto;
-    S.suona(c && S.CONTI[c] ? S.CONTI[c] : suonoSaldo(), { inCoda: true });
+    S.suona(c && S.CONTI[c] ? S.CONTI[c] : suonoSaldo());
   }
   // «Devastanti» si accende: all'apertura, e di nuovo con la sigla
   function brillaTitolo() {
@@ -3615,7 +3618,7 @@
         ? ' Persi ' + sal.persi + ' su ' + sal.chiesti + (sal.ms.length ? ', in media ' + secondi(sal.ms.reduce((x, y) => x + y, 0) / sal.ms.length) : '') + '.' : '')));
       if (ED.nome === 'principale') {
         const dia = tasto('tasto-secondario', 'Copia diagnosi', async () => {
-          mostraToast((await copiaTesto(S.diario())) === false ? 'Non copiato' : 'Copiata');
+          mostraToast((await copiaTesto('Versione ' + VERSIONE + '\n' + S.diario())) === false ? 'Non copiato' : 'Copiata');
         });
         dia.id = 'copiaDiagnosi';
         dia.style.margin = '16px 10px 0 0';

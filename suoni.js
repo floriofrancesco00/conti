@@ -32,7 +32,8 @@
       se ne apre un altro.
    6. Se non va nemmeno quello, la riserva: un elemento <audio> con lo stesso suono. Nessun suono resta in fila: dopo
       1,25 s dal tocco non si suona più, e un suono nuovo prende il posto di quello che aspettava.
-   7. Un suono alla volta: uno nuovo ferma quello prima (sfumato in 40 ms); il saldo dopo la sigla aspetta in coda.
+   7. Un suono alla volta: uno nuovo ferma quello prima (sfumato in 40 ms), chiunque sia. Niente code: il suono di un
+      tasto si sente quando lo si tocca o mai (fino al 24/11/2026 l'occhio aspettava la fine della sigla: sembrava muto).
    8. Prima del microfono i suoni si fermano, ma l'audio (se è ancora aperto) resta aperto e zitto: spegnerlo lì potrebbe
       spegnere la sessione sotto al microfono che sta partendo. Si chiude mezzo secondo dopo che il microfono ha finito,
       e prima di allora non si suona.
@@ -80,7 +81,6 @@
   const AC = window.AudioContext || window.webkitAudioContext;
   const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
   const IPHONE = 'standalone' in navigator;   // esiste solo su iPhone e iPad
-  const eSigla = n => /^(sigla|festa)-/.test(n);
 
   let audio = null;          // l'audio aperto: { c, sano, ciclo, daChiudere, t1, q1, svegliato, mosso, insistito }
   let chiusura = null;       // la chiusura in corso: se ne apre un altro solo dopo
@@ -309,14 +309,6 @@
       r.partito = true;
       if (richiesta === r) richiesta = null;
       segnaPartito(r, r.secondo ? 'secondo' : 'partiti');
-      // il saldo chiesto mentre la sigla stava ancora aprendo l'audio: in coda
-      if (r.poi && buffer[r.poi.nome]) {
-        const p = r.poi;
-        r.poi = null;
-        p.partito = true;
-        suonaSu(a, p, Math.max(t + 0.02, voce.fine - 0.15));
-        segnaPartito(p, 'partiti', true);
-      }
       setTimeout(() => controlla(a, r, voce, t), 180);
       return true;
     } catch (e) {
@@ -324,12 +316,12 @@
       return false;
     }
   }
-  function segnaPartito(r, come, inCoda) {
+  function segnaPartito(r, come) {
     const ms = Math.round(ora() - r.t0);
     if (come === 'partiti' || come === 'secondo') salute.partiti++;
     if (come !== 'partiti') salute[come]++;
-    if (!inCoda) salute.ms = salute.ms.concat(ms).slice(-40);
-    nota((come === 'partiti' ? 'ok ' : come === 'secondo' ? 'ok al secondo audio ' : 'riserva ') + r.nome + (inCoda ? ' in coda' : ' ' + ms + ' ms'));
+    salute.ms = salute.ms.concat(ms).slice(-40);
+    nota((come === 'partiti' ? 'ok ' : come === 'secondo' ? 'ok al secondo audio ' : 'riserva ') + r.nome + ' ' + ms + ' ms');
   }
   // dopo 180 ms: sta andando? Se è fermo si guarda ancora dopo 150 ms: un audio che parte a scatti va lasciato stare (farlo
   // ricominciare si sentirebbe doppio). Se non si muove proprio, lo stesso suono ricomincia su un altro.
@@ -365,7 +357,6 @@
     if (audio) scarta('non parte');
     avanza();
   }
-  // opz.inCoda: se sta suonando la sigla (o sta per partire), parte appena finisce
   function suona(nome, opz) {
     if (!nome || nome === 'nessuno') return false;
     opz = opz || {};
@@ -373,20 +364,10 @@
     if (pausa) libera();   // l'app chiede un suono solo a microfono spento
     if (muto()) return true;
     if (document.hidden) return false;
-    const r = { nome, opz, t0: ora(), partito: false, secondo: false, conRiserva: false, poi: null };
+    const r = { nome, opz, t0: ora(), partito: false, secondo: false, conRiserva: false };
     salute.chiesti++;
     carica(nome).then(avanza);
-    if (opz.inCoda) {
-      if (richiesta && !richiesta.partito && eSigla(richiesta.nome)) { richiesta.poi = r; return true; }
-      const s = audio && audio.sano && attivi.find(v => eSigla(v.nome) && v.fine > audio.c.currentTime + 0.2);
-      if (s && buffer[nome]) {
-        for (const v of attivi) if (v !== s) { try { v.s.stop(); } catch (e) { /* */ } }   // in coda uno solo
-        attivi = [s];
-        try { suonaSu(audio, r, s.fine - 0.15); r.partito = true; segnaPartito(r, 'partiti', true); return true; } catch (e) { /* si prova come gli altri */ }
-      }
-      if (riserva && eSigla(riserva.r.nome)) { riserva.r.poi = r; return true; }
-    }
-    if (riserva) { riserva.r.poi = null; fineRiserva(); }
+    if (riserva) fineRiserva();
     richiesta = r;
     // dopo un'interruzione l'audio di prima può essere partito mentre durava, quindi muto: non ci si fida (regola 4)
     // (rifatta da poco va bene, se non era ancora mentre squillava)
@@ -461,15 +442,12 @@
     try { m.el.pause(); m.el.removeAttribute('src'); m.el.load(); } catch (e) { /* */ }
     try { URL.revokeObjectURL(m.url); } catch (e) { /* */ }
     if (richiesta === m.r) richiesta = null;
-    const poi = m.r.poi;
-    m.r.poi = null;
-    if (poi && !document.hidden && !pausa) { salute.chiesti--; suonati.pop(); suona(poi.nome, {}); }
   }
 
   // ---------------------------------------------------------------- 3 e 8. uscire, tornare, il microfono
   function metteVia() {   // l'audio aperto mentre si esce: sospeso e tenuto, si chiude tornando
     richiesta = null;
-    if (riserva) { riserva.r.poi = null; fineRiserva(); }
+    if (riserva) fineRiserva();
     if (ora() - interrottoA < 800) dubbioFino = -1e9;   // l'interruzione era l'uscita dall'app
     if (chiusura || accesa) sospetto = true;
     if (!audio) return;
@@ -509,7 +487,7 @@
     pausa = true;
     accesa = true;   // su iOS 26 la fine del microfono non spegne la sessione
     richiesta = null;
-    if (riserva) { riserva.r.poi = null; fineRiserva(); }
+    if (riserva) fineRiserva();
     clearTimeout(timerRiposo);
     if (!audio) return;
     sospetto = true;
