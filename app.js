@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.24-1230';
+  const VERSIONE = '2026.11.24-1321';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -288,7 +288,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'suoni: tolta la causa che li faceva ammutolire';
+  const NOVITA = 'suoni ricontrollati sulle versioni vere di iOS';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -300,7 +300,9 @@
     try { g = JSON.parse(sessionStorage.getItem(CHIAVE_AGG) || '{}'); } catch (e) { g = {}; }
     if (g.da === VERSIONE && g.volte >= 2 && Date.now() - g.quando < 300000) return false;
     try { sessionStorage.setItem(CHIAVE_AGG, JSON.stringify({ da: VERSIONE, volte: g.da === VERSIONE ? (g.volte || 0) + 1 : 1, quando: Date.now() })); } catch (e) {}
-    location.reload();
+    // prima si chiude l'audio per bene: su iOS 26 quello della pagina di prima resterebbe a metà (24/11/2026)
+    if (S && S.aperto()) Promise.race([S.riposa(), new Promise(ok => setTimeout(ok, 700))]).then(() => location.reload());
+    else location.reload();
     return true;
   }
   // senzaAttesa: tornando sull'app, chiudendo un foglio o uscendo, non serve che sia fermo da 2 secondi.

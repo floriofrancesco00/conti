@@ -4,26 +4,32 @@
    La sigla all'apertura (al primo tocco sull'iPhone), il suono del saldo a ogni tocco dell'occhio, quelli dei movimenti
    da Salva ed Elimina.
 
-   PERCHÉ È STATO RIFATTO (24/11/2026: «continua a buggarsi l'audio, non voglio più vedere errori»). Il motore del
-   20/11 metteva navigator.audioSession.type = «ambient» e chiudeva l'audio con «ambient» ancora messo. Nel sorgente di
-   WebKit (MediaSessionManagerInterface::maybeDeactivateAudioSession) con un tipo imposto la sessione audio NON si
-   spegne: la pagina restava convinta di averla accesa, iOS in sottofondo l'aveva spenta, e da lì ogni audio nuovo
-   partiva «running», con l'orologio che andava, e muto, fino alla chiusura dell'app (lo stesso guasto, coi diari di due
-   iPhone veri, in moku-labs/game#169). Bastava salvare, uscire dall'app due secondi e tornare. E «ambient» non
-   serviva: in «auto» il Web Audio da solo prende già quella categoria (MediaSessionManagerCocoa::updateSessionState).
+   PERCHÉ È STATO RIFATTO (24/11/2026: «continua a buggarsi l'audio, non voglio più vedere errori»). Sull'iPhone la
+   «sessione audio» accesa è in tre posti: per la pagina, per il processo audio di Safari, per iOS. Uscendo dall'app (o con
+   una chiamata) iOS spegne la sua senza dirlo al processo audio, che continua a crederla accesa e non la riaccende più: da
+   lì ogni audio nuovo parte «running», con l'orologio che va, e muto (RemoteAudioSessionProxyManager in WebKit; i diari di
+   due iPhone veri in moku-labs/game#169). Si torna a posto solo quando la pagina chiede di spegnerla: in TUTTE le versioni
+   succede chiudendo l'ultimo audio con l'app davanti; sospenderlo basta solo in alcune, e in quella in sviluppo non basta
+   niente se la pagina impone un tipo (navigator.audioSession.type). Il motore del 20/11 teneva l'audio aperto 45 secondi,
+   imponeva «ambient» e guariva al tocco dopo. «Ambient» non serviva: in «auto» il Web Audio da solo prende già quella
+   categoria. La prima versione del 24/11 spegneva con suspend() e riaccendeva con resume(): su iOS 26 non guariva niente,
+   su iOS 27 ammutoliva. Trovato lo stesso giorno leggendo i sorgenti delle versioni uscite, non solo quello in sviluppo.
 
    LE REGOLE DI QUESTO MOTORE
    1. Il tipo è sempre «auto». L'unica eccezione è la riserva (punto 6), che lo rimette prima di finire.
    2. L'audio si apre solo quando serve un suono, dentro un tocco, e 3 secondi dopo l'ultimo suono si spegne per bene:
-      prima suspend() e poi close(), così WebKit spegne davvero la sessione. A riposo non c'è niente di aperto, quindi
-      uscendo dall'app, con una chiamata o con Siri non c'è niente che si possa guastare.
-   3. Se si esce mentre l'audio è ancora aperto lo si sospende e lo si TIENE: chiuderlo in quel momento non spegnerebbe
-      la sessione (WebKit non lo fa durante un'interruzione). Si chiude tornando: un secondo dopo, quando l'app è davvero
-      attiva, o al primo dito appoggiato se arriva prima.
-   4. Dopo qualunque cosa sospetta (uscita o interruzione con l'audio aperto, ricarica della pagina, un audio non
-      partito) l'audio dopo, prima di suonare, fa suspend() e resume(): spegne e riaccende la sessione davvero. Dopo
-      un'interruzione lo fanno tutti per un minuto, perché finché dura (il telefono che squilla) non serve.
-   5. Si suona solo quando l'audio va DAVVERO: «running» e l'orologio che avanza. Se non va in 0,65 s se ne apre un altro.
+      prima suspend() e poi close(). A riposo non c'è niente di aperto, quindi uscendo dall'app, con una chiamata o con
+      Siri non c'è niente che si possa guastare.
+   3. Se si esce (o arriva una chiamata) mentre l'audio è ancora aperto lo si sospende e lo si TIENE: chiuderlo in quel
+      momento può non spegnere la sessione. Si chiude dopo: tornando, un secondo dopo (quando l'app è davvero attiva) o al
+      primo dito appoggiato se arriva prima.
+   4. Dopo qualunque cosa sospetta (interruzione, ricarica della pagina, un audio non partito, uscita mentre la sessione
+      poteva essere accesa) l'audio dopo si apre, si chiude e si riapre prima di suonare: è il chiudere che spegne la
+      sessione dappertutto, e riaprendo la si accende davvero. Dopo un'interruzione lo fanno tutti per un minuto, perché
+      finché dura (il telefono che squilla) non serve.
+   5. Si suona solo quando l'audio va DAVVERO: «running» e l'orologio che avanza. Quando va, resume() una volta ancora:
+      su iOS 26 e 27 la prima richiesta può partire senza accendere la sessione, la seconda la accende. Se non va in 0,65 s
+      se ne apre un altro.
    6. Se non va nemmeno quello, la riserva: un elemento <audio> con lo stesso suono. Nessun suono resta in fila: dopo
       1,25 s dal tocco non si suona più, e un suono nuovo prende il posto di quello che aspettava.
    7. Un suono alla volta: uno nuovo ferma quello prima (sfumato in 40 ms); il saldo dopo la sigla aspetta in coda.
@@ -65,6 +71,7 @@
   const FERMO_MS = 200;       // l'orologio andava e non va più da tanto: è guasto (appena aperto invece può metterci mezzo secondo)
   const DOPO_MIC_MS = 500;    // il microfono dell'iPhone si chiude un attimo dopo che l'app lo sa
   const DITO_MS = 400;        // col dito appena appoggiato l'audio non si chiude da solo
+  const DUBBIO_MIC_MS = 8000; // dettato e salvato subito non serve rifare la sessione; più tardi sì (in mezzo può essere squillato)
   const RITORNO_MS = 1000;    // tornando, l'app è attiva 0,3-0,7 s dopo che la pagina è visibile
   const APPUNTAMENTI = [16, 33, 50, 70, 90, 115, 140, 170, 200, 235, 275, 320, 370, 430, 500, 570, 640, 700, 750, 800, 860, 920];
   const suonati = [];   // per le prove: cosa ha suonato (o avrebbe suonato), in ordine
@@ -75,11 +82,13 @@
   const IPHONE = 'standalone' in navigator;   // esiste solo su iPhone e iPad
   const eSigla = n => /^(sigla|festa)-/.test(n);
 
-  let audio = null;          // l'audio aperto: { c, sano, ciclo, inCiclo, daChiudere, t1, q1, svegliato }
+  let audio = null;          // l'audio aperto: { c, sano, ciclo, daChiudere, t1, q1, svegliato, mosso, insistito }
   let chiusura = null;       // la chiusura in corso: se ne apre un altro solo dopo
   let sospetto = false;      // la sessione potrebbe essere accesa solo per la pagina: il prossimo audio la rifà (regola 4)
   let dubbioFino = -1e9;     // fino ad allora il sospetto resta: durante un'interruzione WebKit non spegne la sessione
   let interrottoA = -1e9;
+  let accesa = false;        // WebKit può avere la sessione accesa (un audio o il microfono, e nessuna chiusura dopo)
+  let rifattaA = -1e9;       // quando la si è rifatta l'ultima volta
   let pausa = false;         // il microfono
   let micFine = -1e9;        // quando il microfono ha finito
   let richiesta = null;      // il suono chiesto e non ancora partito: uno solo
@@ -177,12 +186,15 @@
     let c = null;
     try { c = new AC({ latencyHint: 'interactive' }); } catch (e) { try { c = new AC(); } catch (e2) { c = null; } }
     if (!c) return null;
-    const a = audio = { c, sano: false, ciclo: sospetto, inCiclo: false, daChiudere: false, t1: null, q1: 0, svegliato: -1e9, cicloDa: -1e9, mosso: false };
+    const a = audio = { c, sano: false, ciclo: (sospetto || (accesa && ora() - micFine > DUBBIO_MIC_MS)) && ora() - rifattaA > 1500, daChiudere: false, t1: null, q1: 0, svegliato: -1e9, mosso: false, insistito: false };
     rinnovi++;
+    accesa = true;
     c.addEventListener('statechange', () => {
       if (c.state === 'interrupted') {   // una chiamata, Siri, la sveglia; o si sta uscendo, e allora il dubbio non serve
         if (!document.hidden) { interrottoA = ora(); sospetta(60000); }
-        sospetto = true; a.sano = false; a.t1 = null; a.ciclo = true;
+        sospetto = true; a.sano = false; a.daChiudere = true;
+        if (a === audio) { fermaTutti(); clearTimeout(timerRiposo); }   // se no dopo la chiamata ne suonerebbe il resto
+        entro(() => c.suspend(), 50);
         nota('interrotto');
       }
       avanza();
@@ -193,7 +205,7 @@
   }
   // un campione muto e resume(): sull'iPhone è questo, dentro il tocco, che apre davvero l'audio
   function svegli(a) {
-    if (a.inCiclo || a.c.state === 'running' || a.c.state === 'closed') return;
+    if (a.c.state === 'running' || a.c.state === 'closed') return;
     a.svegliato = ora();
     try {
       const s = a.c.createBufferSource();
@@ -221,7 +233,10 @@
       .then(finitoMicrofono)
       .then(() => (a.c.state === 'closed' ? 0 : entro(() => a.c.close(), 400)))
       .then(() => {
-        if (pulito && !document.hidden && a.c.state === 'closed' && ora() > dubbioFino) sospetto = false;
+        if (!document.hidden && a.c.state === 'closed' && ora() > dubbioFino) {
+          if (pulito) sospetto = false;
+          if (chiusura === p && !pausa) accesa = false;
+        }
         if (chiusura === p) { chiusura = null; avanza(); }
       });
     chiusura = p;
@@ -242,33 +257,25 @@
       spegni('');
     }, resta + (window.__CONTI_RIPOSO || RIPOSO_MS));
   }
-  // la sessione spenta e riaccesa davvero, prima di suonare (regola 4)
-  function rinfresca(a) {
-    a.ciclo = false;
-    a.inCiclo = true;
-    a.cicloDa = ora();
-    a.t1 = null;
+  // la sessione spenta e riaccesa davvero, prima di suonare (regola 4): questo audio si chiude, il prossimo suona
+  function rifai() {
+    rifattaA = ora();
     nota('sessione rifatta');
-    entro(() => a.c.suspend(), 250)
-      .then(() => (a === audio && !document.hidden ? entro(() => a.c.resume(), 400) : 0))
-      .then(() => {
-        a.inCiclo = false;
-        if (a.c.state === 'running' && ora() > dubbioFino) sospetto = false;
-        avanza();
-      });
+    if (ora() > dubbioFino) sospetto = false;
+    spegni('');
   }
   // l'audio va davvero? «running» e l'orologio che avanza; se c'è un sospetto, prima si rifà la sessione
   function pronto(a) {
-    if (a.inCiclo) return false;
     if (a.c.state !== 'running') { a.sano = false; a.t1 = null; return false; }
     if (a.sano) return true;
+    if (!a.insistito) { a.insistito = true; try { a.c.resume().catch(() => {}); } catch (e) { /* niente */ } }   // regola 5
     if (a.t1 === null) { a.t1 = a.c.currentTime; a.q1 = ora(); return false; }
     if (a.c.currentTime - a.t1 < 0.004) {
       if (a.mosso && ora() - a.q1 > FERMO_MS) scarta('orologio fermo');
       return false;
     }
     a.mosso = true;
-    if (a.ciclo) { rinfresca(a); return false; }
+    if (a.ciclo) { rifai(); return false; }
     a.sano = true;
     return true;
   }
@@ -353,7 +360,7 @@
     if (r !== richiesta || r.partito || r.conRiserva || pausa || document.hidden) return;
     if (!buffer[r.nome]) return;   // manca il suono, non l'audio
     // ci è quasi: buttarlo adesso farebbe solo più tardi
-    if (audio && (audio.inCiclo || (audio.mosso && audio.c.state === 'running') || ora() - audio.cicloDa < 500)) return;
+    if (chiusura || (audio && ((audio.mosso && audio.c.state === 'running') || ora() - rifattaA < 550))) return;
     r.secondo = true;
     if (audio) scarta('non parte');
     avanza();
@@ -382,7 +389,8 @@
     if (riserva) { riserva.r.poi = null; fineRiserva(); }
     richiesta = r;
     // dopo un'interruzione l'audio di prima può essere partito mentre durava, quindi muto: non ci si fida (regola 4)
-    if (audio && audio.sano && ora() < dubbioFino) { fermaTutti(); audio.sano = false; audio.ciclo = true; audio.t1 = null; }
+    // (rifatta da poco va bene, se non era ancora mentre squillava)
+    if (audio && audio.sano && ora() < dubbioFino && (ora() - rifattaA > 1500 || rifattaA - interrottoA < 4000)) { fermaTutti(); audio.sano = false; audio.daChiudere = true; }
     if (!AC) { conRiserva(r); return true; }
     // il permesso del tocco è scaduto (una conferma lasciata aperta più di 5 secondi): l'audio nuovo non partirebbe,
     // la riserva sì, perché siamo ancora dentro il suo tocco
@@ -463,7 +471,7 @@
     richiesta = null;
     if (riserva) { riserva.r.poi = null; fineRiserva(); }
     if (ora() - interrottoA < 800) dubbioFino = -1e9;   // l'interruzione era l'uscita dall'app
-    if (chiusura) sospetto = true;
+    if (chiusura || accesa) sospetto = true;
     if (!audio) return;
     clearTimeout(timerRiposo);
     sospetto = true;
@@ -482,6 +490,8 @@
     if (audio && audio.daChiudere) setTimeout(chiudiTornando, RITORNO_MS);
   });
   window.addEventListener('pagehide', () => { metteVia(); scriviDiario(); });
+  // l'app resta visibile ma non è più davanti (una chiamata, Siri): se la sessione poteva essere accesa, il prossimo la rifà
+  window.addEventListener('blur', () => { if (accesa && !audio) sospetto = true; });
   document.addEventListener('pointerdown', e => {
     ultimoDito = ora();
     if (e.target && e.target.closest && e.target.closest('#microfono')) return;   // chiudere adesso capiterebbe mentre parte il microfono
@@ -497,6 +507,7 @@
   // prima del microfono: niente suoni; l'audio resta aperto e zitto, si chiude dopo (regola 8)
   function ferma() {
     pausa = true;
+    accesa = true;   // su iOS 26 la fine del microfono non spegne la sessione
     richiesta = null;
     if (riserva) { riserva.r.poi = null; fineRiserva(); }
     clearTimeout(timerRiposo);
@@ -579,6 +590,7 @@
   window.Suoni = { NOMI, SIGLE, SALDO, CONTI, FESTE, prepara, sblocca, suona, provaSubito, ferma, libera, alPrimoTocco, suonati: () => suonati.slice(),
     stato: () => (audio ? audio.c.state : muto() ? 'muto' : 'chiuso'), pronti: () => Object.keys(buffer).length,
     salute: () => Object.assign({}, salute, { ms: salute.ms.slice() }), diario: testoDiario,
+    riposa: () => spegni(''), aperto: () => !!(audio || chiusura),
     staSuonando: () => !!(richiesta || riserva || attivi.some(v => v.finisce > ora())),
     // per le prove: cosa sta suonando adesso, cosa aspetta, quante volte si è aperto un audio nuovo, l'audio stesso
     attivi: () => attivi.map(v => ({ nome: v.nome, inizio: Math.round(v.inizio * 100) / 100 })),
