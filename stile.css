@@ -250,7 +250,8 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .barra-corpo { flex: 1; min-width: 0; display: block; }
 .barra-riga:active, .barra-riga[aria-pressed="true"] { background: var(--superficie-2); }
 .barra-testi { display: flex; justify-content: space-between; gap: 8px; font-size: 16px; }
-.barra-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.voce-conti { min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
+.conti-piccoli { font-size: 12px; color: var(--testo-tenue); white-space: nowrap; }
 .barra-valore { font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .barra-sotto { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
 .barra-quota { color: var(--testo-2); font-size: 13px; min-width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -645,7 +646,7 @@ body.voce-attiva .scorciatoie { display: none; }
 .res-cat-titolo + .res-categorie { margin-top: 2px; }
 .res-categorie { list-style: none; margin: 8px 0 0; padding: 0; }
 .res-categorie li { display: flex; justify-content: space-between; gap: 8px; font-size: 14px; padding: 5px 2px; border-top: 1px solid var(--filo); }
-.res-cat-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.res-categorie li .conti-piccoli { font-size: 11px; }
 .res-cat-valore { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--testo-2); }
 .res-cat-altre { color: var(--testo-tenue); font-size: 13px !important; }
 .mese-titolo {

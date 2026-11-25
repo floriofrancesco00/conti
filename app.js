@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.25-0956';
+  const VERSIONE = '2026.11.25-1430';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -333,7 +333,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'suoni subito, e l’occhio di nuovo acceso';
+  const NOVITA = 'i conti accanto alle categorie';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -1957,12 +1957,12 @@
     }
     $('occhioSaldi').hidden = $('modSaldo').hidden;   // senza saldi inseriti non c'è niente da nascondere
   }
-  // il suono a ogni tocco (17/11/2026 sera: «dovrebbe potersi sentire ogni volta che ci schiacci»)
+  // il suono ogni volta che lo scopre (17/11/2026 sera, precisato il 25/11)
   // conto: quello che si guarda (di solito quello della pagina): ogni conto ha il suo suono (18/11/2026)
   function cambiaOcchio(v, conto) {
     const prima = saldoVisibile;
     saldoVisibile = v === undefined ? !saldoVisibile : !!v;
-    if (saldoVisibile !== prima) suonaSaldo(conto);
+    if (saldoVisibile && !prima) suonaSaldo(conto);
     disegna();
     if (saldoVisibile && !prima) svela($('heroValore'));
   }
@@ -1992,6 +1992,25 @@
     uscita: { barre: 'barre', titolo: 'titoloCategorie', altre: 'barreAltre', nome: 'Spese', quota: 'delle uscite', vuoto: 'Nessuna spesa in questo periodo.' },
     entrata: { barre: 'barreEntrate', titolo: 'titoloEntrate', altre: 'barreEntrateAltre', nome: 'Entrate', quota: 'delle entrate', vuoto: 'Nessuna entrata in questo periodo.' }
   };
+  // su «Tutto», accanto alla categoria, da quali conti: «(digitale, contanti)», dal più pesante (25/11/2026, sua richiesta).
+  // Di quanto, si guarda sul conto: per questo niente cifre
+  function contiPerCategoria(lista, tipo) {
+    const per = new Map();
+    for (const m of lista) {
+      if (m.tipo !== tipo) continue;
+      if (!per.has(m.categoria)) per.set(m.categoria, new Map());
+      const c = per.get(m.categoria), id = contoDi(m);
+      c.set(id, (c.get(id) || 0) + m.importo);
+    }
+    return nome => [...(per.get(nome) || new Map()).entries()].sort((a, b) => b[1] - a[1]).map(([id]) => infoConto(id).nome.toLowerCase());
+  }
+  // il nome e i suoi conti: se non ci stanno sulla riga, i conti vanno a capo interi
+  function nomeEConti(classe, nome, conti) {
+    const v = el('span', 'voce-conti');
+    v.appendChild(el('span', classe, nome));
+    if (conti.length) { v.appendChild(document.createTextNode(' ')); v.appendChild(el('span', 'conti-piccoli', '(' + conti.join(', ') + ')')); }
+    return v;
+  }
   let periodoBarre = null;   // cambiando mese, anno o conto le barre crescono; salvando o toccandole no
   function disegnaBarre(tipo, lista, totale) {
     const B = BARRE[tipo];
@@ -2008,6 +2027,7 @@
       return;
     }
     const max = righe[0][1];
+    const contiDi = vista.conto ? () => [] : contiPerCategoria(lista, tipo);
     const corte = righe.length > 8 && !vista.tutte[tipo] && !righe.slice(6).some(([n]) => eFiltro(tipo, n));
     ol.classList.toggle('corte', corte);
     for (const [nome, cent] of righe) {
@@ -2015,13 +2035,13 @@
       const b = el('button', 'barra-riga');
       b.type = 'button';
       b.setAttribute('aria-pressed', String(eFiltro(tipo, nome)));
-      const quota = percento(cent, totale);
-      b.setAttribute('aria-label', nome + ': ' + euro(cent) + ', ' + quota + ' ' + B.quota + '. Tocca per vedere i movimenti.');
+      const quota = percento(cent, totale), conti = contiDi(nome);
+      b.setAttribute('aria-label', nome + (conti.length ? ', ' + conti.join(' e ') : '') + ': ' + euro(cent) + ', ' + quota + ' ' + B.quota + '. Tocca per vedere i movimenti.');
       // come i movimenti: il simbolo nel suo riquadro; sotto al nome la barra, e accanto alla barra la percentuale
       b.appendChild(riquadro(iconaDi(tipo, nome)));
       const corpo = el('span', 'barra-corpo');
       const testi = el('span', 'barra-testi');
-      testi.appendChild(el('span', 'barra-nome', nome));
+      testi.appendChild(nomeEConti('barra-nome', nome, conti));
       testi.appendChild(el('span', 'barra-valore', euro(cent)));
       corpo.appendChild(testi);
       const sotto = el('span', 'barra-sotto');
@@ -3530,9 +3550,8 @@
       }, 12000);
     });
   }
-  // l'occhio: il suo suono A OGNI TOCCO, che scopra o ricopra, e subito, anche sopra la sigla (24/11/2026 sera). Prima
-  // suonava solo scoprendo e aspettava la fine della sigla: usandola davvero, 4 tocchi su 10 erano muti, e su Contanti
-  // quasi sempre (il saldo era già scoperto da «Tutto»). «Escono solo entrate, uscite e cestino»: erano gli unici senza regole.
+  // l'occhio: il suo suono quando SCOPRE il numero, subito, anche sopra la sigla; quando lo ricopre niente. Sua scelta del
+  // 25/11/2026, dopo averlo provato a ogni tocco (24/11 sera): «voglio che parta solamente quando schiaccio per vedere il numero».
   // 18/11/2026: «un rumore diverso quando schiaccio l'occhio su digitale rispetto a contanti e cripto»: guardando un
   // conto, il suo (banconote, il bip del POS, una moneta digitale); su «Tutto» quello scelto. «Nessuno» li spegne tutti.
   function suonaSaldo(conto) {
@@ -4150,9 +4169,10 @@
       if (gruppi.length > 1) box.appendChild(el('p', 'res-cat-titolo', BARRE[tipo].nome + ' per categoria'));
       const ol = el('ol', 'res-categorie');
       ol.dataset.tipo = tipo;
+      const contiDi = f.conto ? () => [] : contiPerCategoria(righe, tipo);
       for (const [nome, cent] of cat.slice(0, 5)) {
         const li = el('li');
-        li.appendChild(el('span', 'res-cat-nome', iconaDi(tipo, nome) + ' ' + nome));
+        li.appendChild(nomeEConti('res-cat-nome', iconaDi(tipo, nome) + ' ' + nome, contiDi(nome)));
         li.appendChild(el('span', 'res-cat-valore', euro(cent) + ' · ' + percento(cent, tot)));
         ol.appendChild(li);
       }
