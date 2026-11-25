@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.25-1430';
+  const VERSIONE = '2026.11.25-1912';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -116,7 +116,7 @@
   }
   const maiSalvata = localStorage.getItem(CHIAVE) === null;   // prima apertura, o memoria persa: vedi offriCopia
   let stato = carica();
-  let persistenzaChiesta = false;
+  let persistenzaChiesta = false, nonSalvato = 0;
 
   // Lo spazio (17/11/2026). Safari dà a ogni sito circa 5 MB di localStorage, contati in caratteri da 2 byte: circa
   // 2,5 milioni di caratteri. Un movimento ne pesa circa 220: a 8 movimenti al giorno bastano circa 4 anni. Prima di
@@ -143,7 +143,9 @@
       pesoStato = testo.length;
       copiaTraPoco();
     } catch (e) {
-      mostraToast('Non riesco a salvare: spazio del telefono pieno?');
+      nonSalvato = 0;
+      mostraToast('Non riesco a salvare: spazio del telefono pieno?', null, null, 8000);
+      nonSalvato = Date.now();   // quello che si stava per dire («Modifica salvata») non deve coprirlo (25/11/2026)
       return false;
     }
     if (!persistenzaChiesta && navigator.storage && navigator.storage.persist) {
@@ -310,6 +312,7 @@
   // ================================================================ toast
   let timerToast = null;
   function mostraToast(testo, azione, alClic, durata) {
+    if (Date.now() - nonSalvato < 1500) return;   // l'errore appena detto resta
     $('toastTesto').textContent = testo;
     const b = $('toastAzione');
     b.hidden = !azione;
@@ -333,7 +336,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'i conti accanto alle categorie';
+  const NOVITA = '20 sfondi nuovi, e a caso a ogni apertura';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -2632,7 +2635,12 @@
 
   function apriMenu() {
     apriFoglio('Menù', corpo => {
-      corpo.appendChild(el('div', 'titoletto', 'Sfondo'));
+      const ts = el('div', 'titoletto con-tasto', '');
+      ts.appendChild(el('span', '', 'Sfondo'));
+      const tutti = tasto('legame-tasto', 'Vedi tutti ›', apriSfondi);
+      tutti.id = 'vediSfondi';
+      ts.appendChild(tutti);
+      corpo.appendChild(ts);
       filaSfondi(corpo);
 
       corpo.appendChild(el('div', 'titoletto', 'Impostazioni'));
@@ -3061,22 +3069,69 @@
     const giorno = Math.floor(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / GIORNO_MS);
     return sfondi[giorno % sfondi.length].id;
   }
+  // «A caso» (25/11/2026, sua richiesta): una foto nuova ogni volta che apre l'app o ci torna, a caso fra tutte, mai due volte
+  // di fila la stessa. La prossima si sceglie e si scarica prima, mentre guarda quella di adesso, e si mette quando esce: al
+  // ritorno è già lì. La ricarica di un aggiornamento non è un'apertura, e la foto resta.
+  const CHIAVE_CASO = CHIAVE + '.sfondo';
+  let sfondoCaso = null, prossimoCaso = null, primaDopo = null, mostrata = null;
+  try { sfondoCaso = sessionStorage.getItem(CHIAVE_CASO); } catch (e) { /* niente */ }
+  // la foto della prossima apertura, in una memoria sua: uscendo non si riscrivono le preferenze
+  try { primaDopo = localStorage.getItem(CHIAVE_CASO); } catch (e) { /* niente */ }
+  const aCaso = () => { const l = sfondi.filter(x => x.id !== sfondoCaso && x.id !== mostrata); return l.length ? l[Math.floor(Math.random() * l.length)].id : null; };
+  function preparaProssimo() {
+    if (pref.sfondo !== 'caso' || !sfondi.length) return;
+    prossimoCaso = aCaso();
+    if (!prossimoCaso) return;
+    const i = preparaProssimo.foto = new Image();
+    i.src = 'sfondi/' + prossimoCaso + '.webp';
+    if (i.decode) i.decode().catch(() => {});
+  }
+  function cambiaCaso() {
+    const id = prossimoCaso || aCaso();
+    if (!id) return;
+    sfondoCaso = id;
+    prossimoCaso = null;
+    try { sessionStorage.setItem(CHIAVE_CASO, id); } catch (e) { /* niente */ }
+    applicaSfondo();
+  }
+  document.addEventListener('visibilitychange', () => {
+    if (pref.sfondo !== 'caso') return;
+    if (document.hidden) cambiaCaso(); else setTimeout(preparaProssimo, 1200);
+  });
   function applicaSfondo() {
-    let id = pref.sfondo === 'giorno' ? sfondoDiOggi() : (pref.sfondo === 'nessuno' ? null : pref.sfondo);
+    if (pref.sfondo === 'caso' && !sfondoCaso) {
+      // aperta adesso: finché l'elenco non arriva, quella scelta l'ultima volta che è uscito
+      sfondoCaso = primaDopo || aCaso() || pref.ultimoSfondo || null;
+      try { if (sfondoCaso) sessionStorage.setItem(CHIAVE_CASO, sfondoCaso); } catch (e) { /* niente */ }
+    }
+    let id = pref.sfondo === 'giorno' ? sfondoDiOggi() : pref.sfondo === 'nessuno' ? null : pref.sfondo === 'caso' ? sfondoCaso : pref.sfondo;
     if (id && sfondi.length && !sfondi.some(x => x.id === id)) id = sfondoDiOggi();
+    // la prima foto della prossima apertura si sceglie già adesso: se l'app viene chiusa dal telefono, all'apertura c'è subito
+    if (pref.sfondo === 'caso' && sfondi.length && (!primaDopo || primaDopo === id)) {
+      const altre = sfondi.filter(x => x.id !== id);
+      primaDopo = altre[Math.floor(Math.random() * altre.length)].id;
+      try { localStorage.setItem(CHIAVE_CASO, primaDopo); } catch (e) { /* niente */ }
+    }
+    mostrata = id;
     const s = $('sfondo'), sopra = $('sfondoSopra');
     const info = sfondi.find(x => x.id === id);
     $('sfondoNome').textContent = info ? info.nome : '';
     if (id) {
       for (const x of [s, sopra]) { x.style.backgroundImage = 'url("sfondi/' + id + '.webp")'; x.classList.add('foto'); }
-      if (pref.ultimoSfondo !== id) { pref.ultimoSfondo = id; scriviPref(); }
+      if (pref.ultimoSfondo !== id && pref.sfondo !== 'caso') { pref.ultimoSfondo = id; scriviPref(); }
     } else {
       for (const x of [s, sopra]) { x.style.backgroundImage = ''; x.classList.remove('foto'); }
     }
   }
-  function filaSfondi(corpo) {
-    const fila = el('div', 'fila-sfondi');
-    const opzioni = [{ id: 'giorno', nome: 'Ogni giorno' }]
+  function apriSfondi() {
+    apriFoglio('Sfondi', corpo => {
+      corpo.appendChild(el('p', 'nota-su', 'A caso cambia a ogni apertura.'));
+      filaSfondi(corpo, true);
+    });
+  }
+  function filaSfondi(corpo, griglia) {
+    const fila = el('div', griglia ? 'griglia-sfondi' : 'fila-sfondi');
+    const opzioni = [{ id: 'caso', nome: 'A caso' }, { id: 'giorno', nome: 'Ogni giorno' }]
       .concat(sfondi.map(s => ({ id: s.id, nome: s.nome })), [{ id: 'nessuno', nome: 'Tinta unita' }]);
     for (const o of opzioni) {
       const b = el('button', 'scelta-sfondo');
@@ -3087,6 +3142,12 @@
         const id = sfondoDiOggi();
         if (id) mini.style.backgroundImage = 'linear-gradient(rgba(0,0,0,.35), rgba(0,0,0,.35)), url("sfondi/' + id + '-mini.webp")';
         mini.textContent = '⟳';
+      } else if (o.id === 'caso') {
+        const q = sfondi.filter((x, k) => k % 7 === 1).slice(0, 4).map(x => 'url("sfondi/' + x.id + '-mini.webp")');
+        mini.style.backgroundImage = ['linear-gradient(rgba(0,0,0,.3), rgba(0,0,0,.3))'].concat(q).join(',');
+        mini.style.backgroundSize = 'cover, 50% 50%, 50% 50%, 50% 50%, 50% 50%';
+        mini.style.backgroundPosition = '0 0, 0 0, 100% 0, 0 100%, 100% 100%';
+        mini.textContent = '🎲';
       } else if (o.id === 'nessuno') {
         mini.style.backgroundImage = 'linear-gradient(180deg, #184f95, #256abf 40%, var(--pagina))';
       } else {
@@ -3097,13 +3158,17 @@
       b.setAttribute('aria-pressed', String(pref.sfondo === o.id));
       b.addEventListener('click', () => {
         pref.sfondo = o.id;
+        if (o.id === 'caso') { sfondoCaso = null; primaDopo = null; }
         scriviPref();
         applicaSfondo();
+        preparaProssimo();
         fila.querySelectorAll('.scelta-sfondo').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
       });
       fila.appendChild(b);
     }
     corpo.appendChild(fila);
+    // nella fila del menù quella scelta si vede subito
+    if (!griglia) requestAnimationFrame(() => { const s = fila.querySelector('[aria-pressed=true]'); if (s && s.offsetLeft > 250) fila.scrollLeft = s.offsetLeft - 120; });
   }
   let creditiSuoni = null;
   function apriCrediti() {
@@ -3143,8 +3208,10 @@
       else fetch('suoni/suoni.json').then(r => r.json()).then(l => { creditiSuoni = l; if (document.body.contains(us)) scrivi(l); }).catch(() => {});
     });
   }
+  // «A caso» al posto di «Ogni giorno» per chi aveva quella (una volta sola): è la modalità che ha chiesto
+  if (ED.nome === 'principale' && !pref.casoProposto) { pref.casoProposto = true; if (pref.sfondo === 'giorno') pref.sfondo = 'caso'; scriviPref(); }
   applicaSfondo();
-  fetch('sfondi/sfondi.json').then(r => r.json()).then(l => { if (Array.isArray(l)) { sfondi = l; applicaSfondo(); prontiAlMenu(); } }).catch(() => {});
+  fetch('sfondi/sfondi.json').then(r => r.json()).then(l => { if (Array.isArray(l)) { sfondi = l; applicaSfondo(); prontiAlMenu(); setTimeout(preparaProssimo, 1500); } }).catch(() => {});
   // Le miniature degli sfondi: alla prima apertura del menù andavano prese dalla memoria e decodificate tutte insieme,
   // un terzo di secondo col processore rallentato come un telefono (dalla seconda 22 ms, misurato l'11/11/2026).
   // Si preparano prima, quando l'app è ferma; tenerle qui le lascia pronte anche per il menù.

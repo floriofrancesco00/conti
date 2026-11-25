@@ -104,7 +104,7 @@ h1, h2, h3, p { margin: 0; }
 }
 .sfondo::after {
   content: ""; position: absolute; inset: 0;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.40) 0%, rgba(0, 0, 0, 0.05) 22%, rgba(0, 0, 0, 0) 60%, rgba(0, 0, 0, 0.25) 100%);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.48) 0%, rgba(0, 0, 0, 0.36) 15%, rgba(0, 0, 0, 0.10) 28%, rgba(0, 0, 0, 0) 42%, rgba(0, 0, 0, 0) 60%, rgba(0, 0, 0, 0.25) 100%);
 }
 .sfondo.foto { transition: opacity 0.4s; }
 
@@ -382,7 +382,7 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 }
 
 /* scelta dello sfondo */
-.fila-sfondi { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; margin: 0 -2px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
+.fila-sfondi { display: flex; align-items: flex-start; gap: 8px; overflow-x: auto; padding: 2px 2px 8px; margin: 0 -2px; scroll-snap-type: x proximity; -webkit-overflow-scrolling: touch; }
 .scelta-sfondo {
   flex: 0 0 auto; width: 76px; border: 0; padding: 0; background: transparent; text-align: center; scroll-snap-align: start;
   font-size: 12px; color: var(--testo-2);
@@ -394,6 +394,11 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 }
 .scelta-sfondo[aria-pressed="true"] .mini { border-color: var(--accento); box-shadow: 0 0 0 2px var(--accento); }
 .scelta-sfondo[aria-pressed="true"] { color: var(--testo); font-weight: 600; }
+.titoletto.con-tasto { display: flex; justify-content: space-between; align-items: center; }
+.legame-tasto { border: 0; background: transparent; color: var(--legame); font-size: 14px; font-weight: 600; min-height: 36px; padding: 0 2px 0 12px; text-transform: none; letter-spacing: 0; }
+.griglia-sfondi { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 14px 10px; }
+.griglia-sfondi .scelta-sfondo { width: auto; }
+.griglia-sfondi .scelta-sfondo .mini { width: 100%; height: auto; aspect-ratio: 76 / 136; }
 .titoletto { font-size: 13px; font-weight: 600; color: var(--testo-2); text-transform: uppercase; letter-spacing: 0.04em; margin: 18px 0 8px; }
 .crediti li { font-size: 14px; color: var(--testo-2); margin-bottom: 8px; }
 .crediti a { color: var(--legame); }

@@ -3,7 +3,7 @@
    A ogni pubblicazione cambia VERSIONE, il telefono scarica i file nuovi e butta i vecchi. */
 importScripts('edizione.js');
 const PREFISSO = (self.EDIZIONE && self.EDIZIONE.cache) || 'conti-';
-const VERSIONE = '2026.11.25-1430';
+const VERSIONE = '2026.11.25-1912';
 const CACHE = PREFISSO + VERSIONE;
 const FILE = [
   './',
@@ -30,10 +30,10 @@ const FILE = [
 
 // Gli sfondi stanno in una memoria a parte che non cambia a ogni versione dell'app:
 // si scaricano una volta sola. Se cambiano le foto, cambia SFONDI_CACHE.
-const SFONDI_CACHE = PREFISSO + 'sfondi-1';
+const SFONDI_CACHE = PREFISSO + 'sfondi-2';   // 2: dal 25/11/2026, venti in più (le vecchie si ricopiano dalla 1, non si riscaricano)
 // solo le memorie di questa edizione: «conti-2026…» non tocca «conti-riccardo-2026…» sullo stesso dominio
 const mia = k => k.startsWith(PREFISSO) && /^(\d|sfondi-)/.test(k.slice(PREFISSO.length));
-const SFONDI = ['dolomiti', 'venezia', 'veliero', 'fuji', 'stelle', 'castello', 'bosco', 'aurora']
+const SFONDI = ['dolomiti', 'venezia', 'veliero', 'fuji', 'stelle', 'castello', 'bosco', 'aurora', 'cervino', 'michel', 'pagoda', 'torii', 'sacra', 'tempesta', 'vulcano', 'kilchurn', 'eilean', 'cascata', 'pilastri', 'nebulosa', 'stellisee', 'fanal', 'viale', 'goletta', 'ghiacci', 'carovana', 'santorini', 'alba']
   .flatMap(n => ['./sfondi/' + n + '.webp', './sfondi/' + n + '-mini.webp'])
   .concat(['./sfondi/sfondi.json']);
 
@@ -51,7 +51,14 @@ self.addEventListener('install', evento => {
       })))
       .then(coppie => caches.open(CACHE).then(cache => Promise.all(coppie.map(([u, r]) => cache.put(u, r)))))
       .then(() => caches.open(SFONDI_CACHE))
-      .then(cache => Promise.all(SFONDI.map(u => cache.match(u).then(c => c || cache.add(u).catch(() => {})))))
+      .then(cache => Promise.all(SFONDI.map(async u => {
+        try {
+          if (await cache.match(u)) return;
+          const vecchia = u.endsWith('.json') ? null : await caches.match(u);   // l'elenco cambia, le foto no
+          if (vecchia) await cache.put(u, vecchia.clone());
+          else await cache.add(new Request(u, { cache: 'no-cache' }));
+        } catch (e) { /* senza rete: si tiene la prossima volta, quando la si guarda */ }
+      })))
       .then(() => self.skipWaiting())
   );
 });

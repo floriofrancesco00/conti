@@ -54,5 +54,145 @@
   "autore": "W.carter",
   "licenza": "CC BY-SA 4.0",
   "fonte": "https://commons.wikimedia.org/wiki/File:Multicolored_aurora_borealis_pillar_over_Brastad.jpg"
+ },
+ {
+  "id": "cervino",
+  "nome": "Cervino",
+  "autore": "Sam Ferrara samferrara",
+  "licenza": "CC0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Matterhorn_sunset_2016_(Unsplash).jpg"
+ },
+ {
+  "id": "michel",
+  "nome": "Mont Saint-Michel",
+  "autore": "Lynx1211",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Mont_St_Michel_at_sunrise.jpg"
+ },
+ {
+  "id": "pagoda",
+  "nome": "Kyoto di notte",
+  "autore": "Martin Falbisoner",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Kiyomizu-dera,_Kyoto,_November_2016_-07.jpg"
+ },
+ {
+  "id": "torii",
+  "nome": "Torii",
+  "autore": "Paul Vlaar",
+  "licenza": "CC BY-SA 3.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:KyotoFushimiInariLarge.jpg"
+ },
+ {
+  "id": "sacra",
+  "nome": "Sacra di San Michele",
+  "autore": "Elio Pallard",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:La_Sacra_ammantata_dalla_neve.jpg"
+ },
+ {
+  "id": "tempesta",
+  "nome": "Faro e tempesta",
+  "autore": "Maxime Raynal from France",
+  "licenza": "CC BY 2.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Port_and_lighthouse_overnight_storm_with_lightning_in_Port-la-Nouvelle.jpg"
+ },
+ {
+  "id": "vulcano",
+  "nome": "Vulcano",
+  "autore": "Giles Laurent",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:001_Volcano_eruption_of_Litli-Hr%C3%BAtur_in_Iceland_in_2023_Photo_by_Giles_Laurent.jpg"
+ },
+ {
+  "id": "kilchurn",
+  "nome": "Scozia",
+  "autore": "MHoser",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Kilchurn_Castle_at_sunrise.jpg"
+ },
+ {
+  "id": "eilean",
+  "nome": "Eilean Donan",
+  "autore": "Diliff",
+  "licenza": "CC BY-SA 3.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Eilean_Donan_Castle,_Scotland_-_Jan_2011.jpg"
+ },
+ {
+  "id": "cascata",
+  "nome": "Dynjandi",
+  "autore": "Diego Delso",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Cascada_Dynjandi,_Vestfir%C3%B0ir,_Islandia,_2014-08-14,_DD_136-138_HDR.JPG"
+ },
+ {
+  "id": "pilastri",
+  "nome": "Pilastri della Creazione",
+  "autore": "NASA, ESA, and the Hubble Heritage Team (STScI/AURA)",
+  "licenza": "Public domain",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Pillars_of_creation_2014_HST_WFC3-UVIS_full-res_denoised.jpg"
+ },
+ {
+  "id": "nebulosa",
+  "nome": "Nebulosa",
+  "autore": "NASA, ESA and Jesœs Maz Apellÿniz (Instituto de astrofísica de Andalucia, Spain). Acknowle",
+  "licenza": "Public domain",
+  "fonte": "https://commons.wikimedia.org/wiki/File:EmissionNebula_NGC6357.jpg"
+ },
+ {
+  "id": "stellisee",
+  "nome": "Stellisee",
+  "autore": "Giles Laurent",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:008_Milky_way_aligned_with_the_Matterhorn_reflecting_in_Stellisee_Photo_by_Giles_Laurent.jpg"
+ },
+ {
+  "id": "fanal",
+  "nome": "Bosco di Fanal",
+  "autore": "Dietmar Rabich",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Fanal_(Madeira,_Portugal),_Lorbeerwald_--_2025_--_1546.jpg"
+ },
+ {
+  "id": "viale",
+  "nome": "Viale d'autunno",
+  "autore": "Dietmar Rabich",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:D%C3%BClmen,_B%C3%B6rnste,_Waldweg_--_2015_--_4649.jpg"
+ },
+ {
+  "id": "goletta",
+  "nome": "Goletta",
+  "autore": "Christian Ferrer",
+  "licenza": "CC BY 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Escale_%C3%A0_S%C3%A8te_2022_D.jpg"
+ },
+ {
+  "id": "ghiacci",
+  "nome": "Ghiacci",
+  "autore": "Vaido Otsar",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Sailing_vessel_Rembrandt_van_Rijn.jpg"
+ },
+ {
+  "id": "carovana",
+  "nome": "Deserto",
+  "autore": "Sergey Pesterev",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Caravan_in_the_desert.jpg"
+ },
+ {
+  "id": "santorini",
+  "nome": "Santorini",
+  "autore": "Giles Laurent",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:1000_Three_domes_of_Oia_in_Santorini_Photo_by_Giles_Laurent.jpg"
+ },
+ {
+  "id": "alba",
+  "nome": "Alba sul fiume",
+  "autore": "Jakub Hałun",
+  "licenza": "CC BY-SA 4.0",
+  "fonte": "https://commons.wikimedia.org/wiki/File:Wsch%C3%B3d_s%C5%82o%C5%84ca_nad_Kana%C5%82em_%C5%81%C4%85cza%C5%84skim_w_Brze%C5%BAnicy,_20211009_0711_3152.jpg"
  }
 ]
