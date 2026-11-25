@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const VERSIONE = '2026.11.24-2321';
+  const VERSIONE = '2026.11.25-0956';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -333,7 +333,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'ogni Salva ed Elimina suona, importi mai persi';
+  const NOVITA = 'suoni subito, e l’occhio di nuovo acceso';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -513,6 +513,19 @@
     }
     if (cb) cb();
     if (versionePronta) setTimeout(() => ricaricaSePuoi(true), 400);
+  }
+  // al posto di confirm(): la finestra di sistema sospendeva l'audio dell'iPhone, e il suono dopo si perdeva (25/11/2026)
+  function conferma(titolo, testo, si, alSi, torna) {
+    if (torna) foglioSotto = torna;
+    apriFoglio(titolo, corpo => {
+      if (testo) corpo.appendChild(el('p', '', testo));
+      const riga = el('div', 'riga-tasti');
+      riga.appendChild(tasto('tasto-secondario', 'Annulla', () => chiudiFoglio(true)));
+      const b = tasto('tasto-pericolo pieno', si, () => { chiudiFoglio(); alSi(); });
+      b.id = 'confermaSi';
+      riga.appendChild(b);
+      corpo.appendChild(riga);
+    });
   }
   const foglioAperto = () => !$('foglio').hidden && !$('foglio').classList.contains('via');
 
@@ -1267,15 +1280,16 @@
       }
       const riga = el('div', 'riga-tasti');
       if (!nuovo) riga.appendChild(tasto('tasto-pericolo', 'Elimina', () => {
+        leggi();
         const inArrivo = stato.movimenti.some(m => m.ricorrente === esistente.id && m.data > isoOggi());
-        if (!confirm('Eliminare il movimento fisso «' + esistente.descrizione + '»? Quelli già passati restano'
-          + (inArrivo ? ', quello in arrivo questo mese sparisce.' : '.'))) return;
-        aggiornaInArrivo(esistente, true);
-        stato.ricorrenti = stato.ricorrenti.filter(r => r.id !== esistente.id);
-        scrivi(); chiudiFoglio(); disegna();
-        suonaMovimento('elimina');
-        if (dopo) dopo();
-        mostraToast('Movimento fisso eliminato');
+        conferma('Eliminare «' + esistente.descrizione + '»?', 'I movimenti già passati restano' + (inArrivo ? ', quello in arrivo questo mese sparisce.' : '.'), 'Elimina', () => {
+          aggiornaInArrivo(esistente, true);
+          stato.ricorrenti = stato.ricorrenti.filter(r => r.id !== esistente.id);
+          scrivi(); disegna();
+          suonaMovimento('elimina');
+          if (dopo) dopo();
+          mostraToast('Movimento fisso eliminato');
+        }, disegnaForm);
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
         leggi();
@@ -1716,13 +1730,18 @@
         const n = usiDi(tipo, esistente.nome), f = stato.ricorrenti.filter(r => r.tipo === tipo && r.categoria === esistente.nome).length;
         const rip = ripiegoDi(tipo);
         const cosa = [n ? n + (n === 1 ? ' movimento passa' : ' movimenti passano') : '', f ? f + (f === 1 ? ' fisso passa' : ' fissi passano') : ''].filter(Boolean).join(' e ');
-        if (cosa && !confirm('Eliminare «' + esistente.nome + '»? ' + cosa + ' in «' + rip + '».')) return;
-        const prima = JSON.stringify(stato);
-        eliminaCategoria(tipo, esistente.nome);
-        disegna(); rileggi();
-        suonaMovimento('elimina');
-        fine(esistente.nome, rip);
-        mostraToast('Eliminata «' + esistente.nome + '»', 'Annulla', () => { stato = JSON.parse(prima); scrivi(); disegna(); rileggi(); });
+        const via = () => {
+          foglioSotto = sotto;
+          const prima = JSON.stringify(stato);
+          eliminaCategoria(tipo, esistente.nome);
+          disegna(); rileggi();
+          suonaMovimento('elimina');
+          fine(esistente.nome, rip);
+          mostraToast('Eliminata «' + esistente.nome + '»', 'Annulla', () => { stato = JSON.parse(prima); scrivi(); disegna(); rileggi(); });
+        };
+        const sotto = foglioSotto;
+        if (!cosa) { via(); return; }
+        conferma('Eliminare «' + esistente.nome + '»?', cosa + ' in «' + rip + '».', 'Elimina', via, () => { foglioSotto = sotto; formCategoria(tipo, esistente, opz); });
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
         const nome = pulisciNome(inp.value);
@@ -2270,15 +2289,16 @@
 
       const riga = el('div', 'riga-tasti');
       riga.appendChild(tasto('tasto-pericolo', 'Elimina', () => {
-        if (!confirm('Eliminare «' + orig.descrizione + '»?')) return;
-        const i = stato.movimenti.findIndex(m => m.id === id);
-        if (i < 0) { chiudiFoglio(); return; }
-        const tolto = stato.movimenti.splice(i, 1)[0];
-        scrivi();
-        chiudiFoglio();
-        disegna();
-        suonaMovimento('elimina');
-        mostraToast('Eliminato', 'Annulla', () => { stato.movimenti.push(tolto); scrivi(); disegna(); });
+        leggiCampi();
+        conferma('Eliminare «' + orig.descrizione + '»?', segnoDi(orig.tipo) + euro(Math.abs(orig.importo)) + ' · ' + etichettaGiorno(orig.data), 'Elimina', () => {
+          const i = stato.movimenti.findIndex(m => m.id === id);
+          if (i < 0) return;
+          const tolto = stato.movimenti.splice(i, 1)[0];
+          scrivi();
+          disegna();
+          suonaMovimento('elimina');
+          mostraToast('Eliminato', 'Annulla', () => { stato.movimenti.push(tolto); scrivi(); disegna(); });
+        }, ridisegna);
       }));
       riga.appendChild(tasto('tasto-primario', 'Salva', () => {
         if (!applica()) return;
@@ -2612,8 +2632,8 @@
       }
       if (S) {
         const nomeDi = (lista, id) => lista.find(a => a.id === id).nome;
-        voce('🔊 Suoni', 'Sigla: ' + nomeDi(S.SIGLE, suonoSigla()) + ' · saldo: ' + nomeDi(S.SALDO, suonoSaldo())
-          + (suoniMovimenti() ? ' · cassa e monete quando salvi' : ' · movimenti in silenzio'), apriSuoni).id = 'voceSuoni';
+        const spenti = [!siglaAccesa() && 'sigla', !occhioAcceso() && 'occhio', !suoniMovimenti() && 'salva ed elimina'].filter(Boolean);
+        voce('🔊 Suoni', spenti.length ? 'Spenti: ' + spenti.join(', ') : 'Sigla: ' + nomeDi(S.SIGLE, suonoSigla()) + ' · occhio: ' + nomeDi(S.SALDO, suonoSaldo()), apriSuoni).id = 'voceSuoni';
         // solo nell'edizione di Francesco, per sempre (sua richiesta del 18/11/2026): mai in quelle degli amici
         if (ED.nome === 'principale') voce('🎛️ Suoni del creatore', 'Tutti i suoni', apriCreatore).id = 'voceCreatore';
       }
@@ -2773,7 +2793,7 @@
           b.appendChild(testi);
           b.appendChild(el('span', 'cat-freccia', '›'));
           b.addEventListener('click', () => {
-            if (confirm('Tornare a ' + quandoCopia(c).toLowerCase() + ' (' + movimenti_(c.movimenti) + ')? Prima salvo una copia di adesso.')) tornaA(c);
+            conferma('Tornare a ' + quandoCopia(c).toLowerCase() + '?', movimenti_(c.movimenti) + '. Prima salvo una copia di adesso.', 'Torna a questa', () => tornaA(c), apriCopie);
           });
           lista.appendChild(b);
         }
@@ -3477,8 +3497,15 @@
     delete pref.suonoApertura;
     scriviPref();
   }
+  // 25/11/2026: «nell'occhio non si sente nessun suono». Nella sua diagnosi l'app non li chiedeva proprio: fra le scelte c'era
+  // «Nessuno», in fondo all'elenco, e spegneva in silenzio l'occhio di tutti i conti. Tolto: si accende e si spegne con le
+  // levette, e chi era su «Nessuno» li ritrova accesi.
+  if (pref.suonoSaldo === 'nessuno') { delete pref.suonoSaldo; scriviPref(); }
+  if (pref.suonoSigla === 'nessuno') { delete pref.suonoSigla; scriviPref(); }
   const suonoSigla = () => scelta(S ? S.SIGLE : [], pref.suonoSigla, 'sigla-oro');
   const suonoSaldo = () => scelta(S ? S.SALDO : [], pref.suonoSaldo, 'saldo-devastante');
+  const siglaAccesa = () => pref.siglaAccesa !== false;
+  const occhioAcceso = () => pref.occhioAcceso !== false;
   const suoniMovimenti = () => pref.suoniMovimenti !== false;
   // col microfono aperto niente suoni (li registrerebbe); mentre scarica o trascrive sì: prima tacevano anche lì (24/11/2026)
   const micAperto = () => statoVoce === 'ascolto';
@@ -3487,7 +3514,7 @@
   function sigla() {
     if (!S) return;
     if (togliSigla) { togliSigla(); togliSigla = null; }
-    if (suonoSigla() === 'nessuno') return;
+    if (!siglaAccesa()) return;
     const festa = festaDiOggi();
     const nome = festa && festa.suono ? festa.suono : suonoSigla();
     S.provaSubito(nome).then(subito => {
@@ -3509,7 +3536,8 @@
   // 18/11/2026: «un rumore diverso quando schiaccio l'occhio su digitale rispetto a contanti e cripto»: guardando un
   // conto, il suo (banconote, il bip del POS, una moneta digitale); su «Tutto» quello scelto. «Nessuno» li spegne tutti.
   function suonaSaldo(conto) {
-    if (!S || micAperto() || suonoSaldo() === 'nessuno') return;
+    if (!S) return;
+    if (micAperto() || !occhioAcceso()) { S.nota('occhio zitto: ' + (micAperto() ? 'microfono aperto' : 'spento in Suoni')); return; }
     const c = conto === undefined ? vista.conto : conto;
     S.suona(c && S.CONTI[c] ? S.CONTI[c] : suonoSaldo());
   }
@@ -3589,6 +3617,7 @@
     });
   }
 
+  const impostazioniSuoni = () => 'sigla ' + (siglaAccesa() ? suonoSigla() : 'spenta') + ' · occhio ' + (occhioAcceso() ? suonoSaldo() : 'spento') + ' · salva ed elimina ' + (suoniMovimenti() ? 'sì' : 'spenti');
   function apriSuoni() {
     apriFoglio('Suoni', corpo => {
       const gruppo = (titolo, lista, attuale, salva) => {
@@ -3598,7 +3627,7 @@
           const b = tasto('azione scelta-suono', a.nome, () => {
             salva(a.id);
             scriviPref();
-            if (a.id !== 'nessuno') S.suona(a.id);
+            S.suona(a.id);
             if (a.id.startsWith('sigla-')) brillaTitolo();
             apriSuoni();
           });
@@ -3608,13 +3637,20 @@
         }
         corpo.appendChild(g);
       };
+      // tre levette: cosa suona e cosa no si vede subito
+      for (const [chiave, testo, acceso] of [['siglaAccesa', 'Sigla all\'apertura', siglaAccesa()], ['occhioAcceso', 'Occhio del saldo', occhioAcceso()], ['suoniMovimenti', 'Salva ed Elimina', suoniMovimenti()]]) {
+        const l = interruttore(testo, acceso);
+        l.casella.id = chiave;
+        l.casella.addEventListener('change', () => { pref[chiave] = l.casella.checked; scriviPref(); S.nota(testo + ': ' + (l.casella.checked ? 'acceso' : 'spento')); });
+        corpo.appendChild(l.etichetta);
+      }
       gruppo('Sigla', S.SIGLE, suonoSigla(), id => { pref.suonoSigla = id; });
       corpo.appendChild(el('p', 'nota-campo', pref.siglaSubito === true
         ? 'Parte appena apri l\'app.'
         : pref.siglaSubito === false
           ? 'Parte al primo tocco.'
           : 'Parte all\'apertura o al primo tocco.'));
-      gruppo('Saldo', S.SALDO, suonoSaldo(), id => { pref.suonoSaldo = id; });
+      gruppo('Occhio, su Tutto', S.SALDO, suonoSaldo(), id => { pref.suonoSaldo = id; });
       corpo.appendChild(el('p', 'nota-campo', 'Sui singoli conti:'));
       const pc = el('div', 'chips');
       pc.style.marginTop = '8px';
@@ -3624,11 +3660,7 @@
         pc.appendChild(b);
       }
       corpo.appendChild(pc);
-      corpo.appendChild(el('div', 'titoletto', 'Movimenti'));
-      const on = interruttore('Suoni dei movimenti', suoniMovimenti());
-      on.casella.id = 'suoniMovimenti';
-      on.casella.addEventListener('change', () => { pref.suoniMovimenti = on.casella.checked; scriviPref(); });
-      corpo.appendChild(on.etichetta);
+      corpo.appendChild(el('div', 'titoletto', 'Salva ed Elimina'));
       const prove = el('div', 'chips');
       prove.style.marginTop = '10px';
       for (const [nome, cosa] of [['entrata', '💰 Entrata'], ['uscita', '🪙 Uscita'], ['spostamento', '↔ Spostamento'], ['elimina', '🗑️ Elimina']]) {
@@ -3640,7 +3672,7 @@
         ? ' Persi ' + sal.persi + ' su ' + sal.chiesti + (sal.ms.length ? ', in media ' + secondi(sal.ms.reduce((x, y) => x + y, 0) / sal.ms.length) : '') + '.' : '')));
       if (ED.nome === 'principale') {
         const dia = tasto('tasto-secondario', 'Copia diagnosi', async () => {
-          mostraToast((await copiaTesto('Versione ' + VERSIONE + '\n' + S.diario())) === false ? 'Non copiato' : 'Copiata');
+          mostraToast((await copiaTesto('Versione ' + VERSIONE + '\n' + impostazioniSuoni() + '\n' + S.diario())) === false ? 'Non copiato' : 'Copiata');
         });
         dia.id = 'copiaDiagnosi';
         dia.style.margin = '16px 10px 0 0';
@@ -3707,7 +3739,7 @@
     disegnaGiornata();
     brillaTitolo();
     pioggiaFesta(f);
-    if (S && suonoSigla() !== 'nessuno') S.suona(f.suono || suonoSigla());
+    if (S && siglaAccesa()) S.suona(f.suono || suonoSigla());
     setTimeout(() => { festaProva = null; disegnaGiornata(); }, 9100);
   }
   function apriFeste() {
@@ -4242,6 +4274,7 @@
   // servire al primo tocco, se no la sigla e il primo saldo arrivavano tardi (24/11/2026)
   if (S) {
     const f = festaDiOggi();
+    S.nota('aperta ' + VERSIONE + ' · ' + impostazioniSuoni());
     S.prepara([f && f.suono, suonoSigla(), suonoSaldo()].concat(Object.values(S.CONTI), ['uscita', 'entrata', 'spostamento', 'elimina']).filter(Boolean));
   }
 
