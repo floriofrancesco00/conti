@@ -1,8 +1,8 @@
-/* Conti — l'app. I dati stanno solo nel telefono (localStorage di questa app). */
-(function () {
+/* Conti — l'app. I dati stanno solo nel telefono: in localStorage e, dal 26/11/2026, anche in IndexedDB (vedi «la memoria»). */
+(async function () {
   'use strict';
 
-  const VERSIONE = '2026.11.25-1912';
+  const VERSIONE = '2026.11.26-1341';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -26,7 +26,8 @@
       // dal 15/11/2026 un saldo per conto: { importo, data, aggiornato } dichiarato da Francesco, o null
       saldi: { contanti: null, digitale: null, cripto: null },
       imparatiConti: {},       // parola → conto, dalle correzioni del conto («tabacchi» → contanti)
-      tasse: { attiva: false, percentuale: 0, categorie: [], dal: null }
+      tasse: { attiva: false, percentuale: 0, categorie: [], dal: null },
+      viaggi: []               // dal 26/11/2026: { id, nome, dal, al, creato } (vedi «i viaggi»)
     };
   }
   // Fino al 14/11/2026 c'era un saldo solo, «conti e contanti» insieme (stato.saldo): va in Digitale, e l'app gli
@@ -90,15 +91,104 @@
     return s;
   }
 
-  function carica() {
-    const grezzo = localStorage.getItem(CHIAVE);
+  // ================================================================ la memoria (26/11/2026, sua scelta: «memoria più grande»)
+  // localStorage tiene circa 2,5 milioni di caratteri: a 8 movimenti al giorno, due anni e mezzo. Da qui ogni salvataggio va
+  // anche in IndexedDB (DB_DATI), che ha lo spazio del telefono. Finché ci sta, localStorage resta la memoria che conta (apre
+  // subito, senza aspettare niente); quando non ci sta più, al suo posto resta un segnaposto ({ inIdb: true, rev }) e l'app
+  // si apre da IndexedDB. «rev» conta i salvataggi: dice se le due copie sono la stessa.
+  // Corretto lo stesso giorno, dopo la prova su WebKit: IndexedDB scrive in differita, e chiudendo l'app subito dopo Salva
+  // l'ultimo movimento si perdeva. Ora, quando non ci sta più tutto, in localStorage restano i movimenti RECENTI (gli
+  // ultimi 24 mesi; se non bastano 12, poi 3) con «archivio: { dal, rev }», e in IndexedDB c'è tutto: all'apertura i
+  // movimenti prima di «dal» si prendono da lì. Un salvataggio nuovo è subito in localStorage, come prima. «archivio.rev» è
+  // l'ultimo salvataggio che ha cambiato i movimenti vecchi: se IndexedDB è più indietro, lo si dice.
+  // Il segnaposto senza movimenti resta solo se nemmeno 3 mesi ci stanno.
+  const DB_DATI = CHIAVE + '.dati';
+  const LIMITE_LS = 1800000;   // caratteri: oltre, il segnaposto
+  let dbDati = null, codaDati = Promise.resolve(), soloLettura = false, inIdb = false;
+  function apriDbDati() {
+    if (dbDati) return dbDati;
+    dbDati = new Promise((ok, ko) => {
+      if (!window.indexedDB) { ko(new Error('niente IndexedDB')); return; }
+      const r = indexedDB.open(DB_DATI, 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('stato');
+      r.onsuccess = () => ok(r.result);
+      r.onerror = () => ko(r.error);
+      r.onblocked = () => ko(new Error('bloccato'));
+    });
+    dbDati.catch(() => { dbDati = null; });
+    return dbDati;
+  }
+  const entroMs = (p, ms) => Promise.race([p, new Promise((ok, ko) => setTimeout(() => ko(new Error('troppo lento')), ms))]);
+  function leggiDati() {
+    return entroMs(apriDbDati().then(db => new Promise((ok, ko) => {
+      const r = db.transaction('stato', 'readonly').objectStore('stato').get('stato');
+      r.onsuccess = () => ok(r.result || null);
+      r.onerror = () => ko(r.error);
+    })), 6000);
+  }
+  // in fila: l'ultimo salvataggio è sempre l'ultimo scritto
+  function scriviDati(rev, testo) {
+    const p = codaDati.then(() => apriDbDati()).then(db => new Promise((ok, ko) => {
+      const tx = db.transaction('stato', 'readwrite');
+      tx.objectStore('stato').put({ rev, testo, quando: Date.now() }, 'stato');
+      tx.oncomplete = () => ok(true);
+      tx.onerror = tx.onabort = () => ko(tx.error);
+    }));
+    codaDati = p.catch(() => {});
+    return p;
+  }
+  async function carica() {
+    let grezzo = null;
+    try { grezzo = localStorage.getItem(CHIAVE); } catch (e) { grezzo = null; }
+    let segnaposto = null;
+    try { const d = grezzo && grezzo.length < 400 ? JSON.parse(grezzo) : null; if (d && d.inIdb) segnaposto = d; } catch (e) { /* è un testo vero */ }
+    // i recenti qui, i vecchi in IndexedDB
+    let arch = null;
+    if (grezzo && !segnaposto && grezzo.includes('"archivio":{')) { try { const d = JSON.parse(grezzo); if (d && d.archivio && d.archivio.dal) arch = d.archivio; } catch (e) { /* sotto, come testo */ } }
+    if (arch) {
+      const s = daTesto(grezzo);
+      let dati = null;
+      try { dati = await leggiDati(); } catch (e) { soloLettura = true; return s; }   // niente salvataggi: si coprirebbero i vecchi
+      inIdb = true;
+      archivioDal = arch.dal;
+      revArchivio = arch.rev || 0;
+      let vecchi = null;
+      try { vecchi = dati && dati.testo ? JSON.parse(dati.testo).movimenti.filter(m => m.data < arch.dal) : null; } catch (e) { vecchi = null; }
+      if (!vecchi) { memoriaVecchiaPersa = true; return s; }
+      if (!(dati.rev >= revArchivio)) memoriaIndietro = true;
+      testoVecchi = JSON.stringify(vecchi);
+      s.movimenti = vecchi.concat(s.movimenti);
+      return s;
+    }
+    if (segnaposto || !grezzo) {
+      let dati = null;
+      try { dati = await leggiDati(); } catch (e) {
+        // il segnaposto c'è ma IndexedDB non risponde: niente salvataggi, se no si coprirebbero i movimenti veri
+        if (segnaposto) { soloLettura = true; return vuoto(); }
+      }
+      if (dati && dati.testo) {
+        inIdb = !!segnaposto;
+        if (segnaposto && !(dati.rev >= segnaposto.rev)) memoriaIndietro = true;
+        return daTesto(dati.testo);
+      }
+      // il segnaposto c'è ma IndexedDB è vuoto: il telefono l'ha cancellato. Come la memoria persa: si offre l'ultima copia
+      if (segnaposto) { memoriaPersa = true; return vuoto(); }
+      return vuoto();
+    }
+    return daTesto(grezzo);
+  }
+  let memoriaIndietro = false, memoriaPersa = false, memoriaVecchiaPersa = false;
+  let archivioDal = null, revArchivio = 0, testoVecchi = null;
+  function daTesto(grezzo) {
     if (!grezzo) return vuoto();
     try {
       const d = JSON.parse(grezzo);
       if (d && Array.isArray(d.movimenti)) {
         const s = Object.assign(vuoto(), d);
+        delete s.archivio;
         if (!Array.isArray(s.ricorrenti)) s.ricorrenti = [];
         if (!s.imparate || typeof s.imparate !== 'object') s.imparate = {};
+        if (!Array.isArray(s.viaggi)) s.viaggi = [];
         s.tasse = Object.assign(vuoto().tasse, s.tasse || {});
         if (!Array.isArray(s.tasse.categorie)) s.tasse.categorie = [];
         sistemaSaldi(s, d.saldo);
@@ -114,8 +204,12 @@
     try { localStorage.setItem(CHIAVE + '.illeggibile.' + Date.now(), grezzo); } catch (e) { /* spazio pieno */ }
     return vuoto();
   }
-  const maiSalvata = localStorage.getItem(CHIAVE) === null;   // prima apertura, o memoria persa: vedi offriCopia
-  let stato = carica();
+  let stato = await carica();
+  const maiSalvata = memoriaPersa || !stato.movimenti.length && !stato.rev && localStorage.getItem(CHIAVE) === null;   // prima apertura, o memoria persa: vedi offriCopia
+  // la copia in IndexedDB di chi apre questa versione per la prima volta (e poi a ogni apertura, se fosse indietro)
+  if (!soloLettura && !inIdb && localStorage.getItem(CHIAVE)) setTimeout(() => {
+    leggiDati().catch(() => null).then(d => { if (!d || d.rev !== stato.rev || !d.testo) scriviDati(stato.rev || 0, JSON.stringify(stato)).catch(() => {}); });
+  }, 2500);
   let persistenzaChiesta = false, nonSalvato = 0;
 
   // Lo spazio (17/11/2026). Safari dà a ogni sito circa 5 MB di localStorage, contati in caratteri da 2 byte: circa
@@ -124,6 +218,7 @@
   const SPAZIO_CARATTERI = 2500000;
   let pesoStato = 0, pesoAltro = null;
   function spazioUsato() {
+    if (inIdb) return 0;   // i movimenti stanno in IndexedDB: lo spazio è quello del telefono
     if (pesoAltro === null) {
       pesoAltro = 0;
       try {
@@ -138,9 +233,42 @@
   }
   function scrivi() {
     try {
+      if (soloLettura) throw new Error('i movimenti non si sono letti: non si scrive sopra');
+      stato.rev = (stato.rev || 0) + 1;
       const testo = JSON.stringify(stato);
-      localStorage.setItem(CHIAVE, testo);
-      pesoStato = testo.length;
+      const dati = scriviDati(stato.rev, testo);
+      let messo = false;
+      if (testo.length <= LIMITE_LS) {
+        try { localStorage.setItem(CHIAVE, testo); messo = true; inIdb = false; pesoStato = testo.length; } catch (e) { messo = false; }
+      }
+      if (!messo) {
+        if (!window.indexedDB) throw new Error('niente IndexedDB');
+        // non ci sta più: qui i recenti, i vecchi solo in IndexedDB (vedi «la memoria»)
+        const o = oggi();
+        for (const mesi of [24, 12, 3]) {
+          const dal = A.isoDa(new Date(o.getFullYear(), o.getMonth() - mesi, 1));
+          const vecchi = [], recenti = [];
+          for (const m of stato.movimenti) (m.data < dal ? vecchi : recenti).push(m);
+          const tv = JSON.stringify(vecchi);
+          const rev = dal === archivioDal && tv === testoVecchi ? revArchivio : stato.rev;
+          const leggero = JSON.stringify(Object.assign({}, stato, { movimenti: recenti, archivio: { dal, rev } }));
+          if (leggero.length > LIMITE_LS) continue;
+          try { localStorage.removeItem(CHIAVE); localStorage.setItem(CHIAVE, leggero); } catch (e) { continue; }
+          archivioDal = dal; revArchivio = rev; testoVecchi = tv;
+          messo = true; inIdb = true; pesoStato = 0;
+          dati.catch(() => { mostraToast('Non riesco a salvare: spazio del telefono pieno?', null, null, 8000); });
+          break;
+        }
+      }
+      if (!messo) {
+        // nemmeno tre mesi: qui solo il segnaposto (prima si toglie il testo vecchio, che occupa)
+        archivioDal = null; testoVecchi = null;
+        localStorage.removeItem(CHIAVE);
+        localStorage.setItem(CHIAVE, JSON.stringify({ schema: SCHEMA, inIdb: true, rev: stato.rev, movimenti: [] }));
+        inIdb = true;
+        pesoStato = 0;
+        dati.catch(() => { mostraToast('Non riesco a salvare: spazio del telefono pieno?', null, null, 8000); });
+      }
       copiaTraPoco();
     } catch (e) {
       nonSalvato = 0;
@@ -281,7 +409,7 @@
   // il conto che sta guardando vale per le frasi che non ne nominano uno
   function opzioniAnalisi(extra) {
     return Object.assign({ oggi: oggi(), adesso: new Date(), imparate: stato.imparate, categorie: stato.categorie,
-      conto: vista.conto, imparatiConti: stato.imparatiConti }, extra || {});
+      conto: vista.conto, imparatiConti: stato.imparatiConti, persone: persone().filter(p => p.saldo).map(p => p.nome) }, extra || {});
   }
 
   // ================================================================ i tre conti (15/11/2026)
@@ -290,21 +418,30 @@
   // versamento, cripto comprate o vendute) è il tipo «spostamento», con m.da e m.verso: non è né entrata né uscita.
   const CONTI_ID = A.CONTI.map(c => c.id);
   const CONTI_LIQUIDI = ['contanti', 'digitale'];   // i mesi di autonomia: le cripto no (sua scelta del 15/11/2026)
-  const infoConto = id => A.CONTI.find(c => c.id === id) || A.CONTI.find(c => c.id === A.CONTO_BASE);
+  const PERSONE = A.PERSONE;   // i prestiti (26/11/2026): non è un conto, è «le persone» (vedi «prestiti»)
+  const INFO_PERSONE = { id: PERSONE, nome: 'Prestiti', icona: '🤝' };
+  const infoConto = id => id === PERSONE ? INFO_PERSONE : A.CONTI.find(c => c.id === id) || A.CONTI.find(c => c.id === A.CONTO_BASE);
   const nomeConto = id => { const c = infoConto(id); return c.icona + ' ' + c.nome; };
   const inConto = id => ({ contanti: 'in contanti', digitale: 'in digitale', cripto: 'in cripto' })[id] || '';
   const contoDi = m => (m && CONTI_ID.includes(m.conto) ? m.conto : A.CONTO_BASE);
   const eSpostamento = m => !!m && m.tipo === 'spostamento';
+  const ePrestito = m => eSpostamento(m) && (m.da === PERSONE || m.verso === PERSONE);
+  const contoReale = m => (m.da === PERSONE ? m.verso : m.da);   // di un prestito, il conto vero
   // il movimento riguarda il conto c (null = tutti): uno spostamento sia dove parte sia dove arriva
   const tocca = (m, c) => !c || (eSpostamento(m) ? m.da === c || m.verso === c : contoDi(m) === c);
-  const etichettaConto = x => (eSpostamento(x) ? nomeConto(x.da) + ' → ' + nomeConto(x.verso) : nomeConto(contoDi(x)));
+  const etichettaConto = x => (ePrestito(x) ? (x.da === PERSONE ? '🤝 ' + x.chi + ' → ' + nomeConto(x.verso) : nomeConto(x.da) + ' → 🤝 ' + x.chi)
+    : eSpostamento(x) ? nomeConto(x.da) + ' → ' + nomeConto(x.verso) : nomeConto(contoDi(x)));
   const altroConto = c => (c === A.CONTO_BASE ? 'contanti' : A.CONTO_BASE);
   // i campi del conto da src a dest (movimento o fisso): { conto } oppure, per gli spostamenti, { da, verso }
   function copiaConto(dest, src) {
-    delete dest.conto; delete dest.da; delete dest.verso;
+    delete dest.conto; delete dest.da; delete dest.verso; delete dest.chi;
     if (eSpostamento(src)) {
-      dest.da = CONTI_ID.includes(src.da) ? src.da : A.CONTO_BASE;
-      dest.verso = CONTI_ID.includes(src.verso) && src.verso !== dest.da ? src.verso : altroConto(dest.da);
+      // un prestito: da un conto alle persone, o dalle persone a un conto, sempre con chi
+      const chi = typeof src.chi === 'string' && src.chi.trim() ? src.chi.trim() : null;
+      const buono = x => CONTI_ID.includes(x) || (x === PERSONE && !!chi);
+      dest.da = buono(src.da) ? src.da : A.CONTO_BASE;
+      dest.verso = buono(src.verso) && src.verso !== dest.da ? src.verso : dest.da === PERSONE ? A.CONTO_BASE : altroConto(dest.da);
+      if (dest.da === PERSONE || dest.verso === PERSONE) dest.chi = chi;
     } else dest.conto = contoDi(src);
     return dest;
   }
@@ -336,7 +473,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = '20 sfondi nuovi, e a caso a ogni apertura';
+  const NOVITA = 'calendario del mese, viaggi, prestiti e memoria più grande';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -625,6 +762,7 @@
   // corrente: { tipo, conto, da, verso, prima }; alScegliere(nuovo): { tipo, conto } o { tipo: 'spostamento', da, verso }.
   // Come per la categoria, la scelta vale toccando un conto o «Fatto»; chiudere il foglio non cambia niente.
   function scegliConto(corrente, alScegliere, comeSpostamento) {
+    if (ePrestito(corrente) && comeSpostamento === undefined) { scegliContoPrestito(corrente, alScegliere); return; }
     const spost = comeSpostamento !== undefined ? comeSpostamento : eSpostamento(corrente);
     const da = CONTI_ID.includes(corrente.da) ? corrente.da : contoDi(corrente);
     const verso = CONTI_ID.includes(corrente.verso) && corrente.verso !== da ? corrente.verso : altroConto(da);
@@ -668,6 +806,48 @@
       riga.appendChild(fatto);
       corpo.appendChild(riga);
     });
+  }
+  function scegliContoPrestito(corrente, alScegliere) {
+    const q = { aMe: corrente.da === PERSONE, conto: contoReale(corrente), chi: corrente.chi };
+    const prima = corrente.prima || 'uscita';
+    const disegnaScelta = () => apriFoglio('Prestito', corpo => {
+      const inChi = inputTesto(q.chi);
+      inChi.id = 'prestitoChi';
+      corpo.appendChild(campo('Chi', inChi));
+      const seg = el('div', 'segmentato largo');
+      seg.id = 'versoPrestito';
+      for (const [aMe, testo] of [[false, 'Dati'], [true, 'Ricevuti']]) {
+        const x = tasto('', testo, () => { q.chi = inChi.value; q.aMe = aMe; disegnaScelta(); });
+        x.dataset.ame = String(aMe);
+        x.setAttribute('aria-pressed', String(q.aMe === aMe));
+        seg.appendChild(x);
+      }
+      corpo.appendChild(seg);
+      const g = el('div', 'griglia-conti');
+      g.id = 'prestitoConto';
+      for (const c of A.CONTI) {
+        const x = tasto('opzione conto-opzione', '', () => { q.chi = inChi.value; q.conto = c.id; disegnaScelta(); });
+        x.dataset.conto = c.id;
+        x.appendChild(el('span', 'conto-icona', c.icona));
+        x.appendChild(el('span', 'conto-nome', c.nome));
+        x.setAttribute('aria-pressed', String(c.id === q.conto));
+        g.appendChild(x);
+      }
+      corpo.appendChild(el('div', 'titoletto', q.aMe ? 'Dove arrivano' : 'Da dove escono'));
+      corpo.appendChild(g);
+      const riga = el('div', 'riga-tasti');
+      riga.appendChild(tasto('tasto-secondario', 'Non è un prestito', () => { chiudiFoglio(); alScegliere({ tipo: prima, conto: q.conto }); }));
+      const fatto = tasto('tasto-primario', 'Fatto', () => {
+        const chi = pulisciNome(inChi.value);
+        if (!chi) { mostraToast('Scrivi il nome'); inChi.focus(); return; }
+        chiudiFoglio();
+        alScegliere({ tipo: 'spostamento', da: q.aMe ? PERSONE : q.conto, verso: q.aMe ? q.conto : PERSONE, chi });
+      });
+      fatto.id = 'prestitoFatto';
+      riga.appendChild(fatto);
+      corpo.appendChild(riga);
+    });
+    disegnaScelta();
   }
   // Tenere premuto un bottone (mezzo secondo, senza muovere il dito): per modificare una categoria dalla griglia.
   function tienePremuto(b, alTenere, alToccare) {
@@ -848,7 +1028,7 @@
       r = Object.assign({}, r, { certo: Object.assign({}, r.certo) });
       if (s.categoria && valida(r.tipo, s.categoria)) { r.categoria = s.categoria; r.certo.categoria = true; }
       // il conto (15/11/2026): per uno spostamento da… a…, per il resto uno dei tre
-      if (eSpostamento(r)) copiaConto(r, { tipo: 'spostamento', da: s.da || r.da || r.conto, verso: s.verso || r.verso });
+      if (eSpostamento(r)) copiaConto(r, { tipo: 'spostamento', da: s.da || r.da || r.conto, verso: s.verso || r.verso, chi: s.da ? s.chi : r.chi });
       else if (s.conto) { r.conto = s.conto; r.certo.conto = true; }
       if (s.data) r.data = s.data;
       // una delle solite, finché la frase è quella: l'importo è quello di allora, anche se la frase lo leggesse diverso
@@ -869,7 +1049,7 @@
     const c = correnti[i];
     if (!c) return;
     scegliTipo(c, tipo => {
-      if (eSpostamento(c)) { scelte[i].conto = c.da; delete scelte[i].da; delete scelte[i].verso; }   // resta dov'era partito
+      if (eSpostamento(c)) { scelte[i].conto = contoReale(c); delete scelte[i].da; delete scelte[i].verso; delete scelte[i].chi; }   // resta dov'era partito
       scelte[i].tipo = tipo;
       if (scelte[i].categoria && !valida(tipo, scelte[i].categoria)) delete scelte[i].categoria;
       rileggi();
@@ -880,8 +1060,9 @@
     if (!c) return;
     scegliConto(c, n => {
       const s = scelte[i];
-      if (n.tipo === 'spostamento') { s.tipo = 'spostamento'; s.da = n.da; s.verso = n.verso; delete s.categoria; }
+      if (n.tipo === 'spostamento') { s.tipo = 'spostamento'; s.da = n.da; s.verso = n.verso; s.chi = n.chi; delete s.categoria; }
       else {
+        delete s.chi;
         if (eSpostamento(c)) s.tipo = n.tipo;   // non è più uno spostamento
         s.conto = n.conto;
         delete s.da; delete s.verso;
@@ -1000,7 +1181,7 @@
     const dal = A.isoDa(new Date(oggi().getTime() - 90 * GIORNO_MS)), oggiIso = isoOggi();
     const gruppi = new Map();
     for (const m of stato.movimenti) {
-      if (m.ricorrente || m.data < dal || m.data > oggiIso || !m.descrizione || !(m.importo > 0) || !tocca(m, vista.conto)) continue;
+      if (m.ricorrente || ePrestito(m) || m.data < dal || m.data > oggiIso || !m.descrizione || !(m.importo > 0) || !tocca(m, vista.conto)) continue;
       const k = [A.normalizza(m.descrizione), m.importo, m.tipo, eSpostamento(m) ? m.da + '>' + m.verso : contoDi(m)].join('|');
       const g = gruppi.get(k) || { m, n: 0, quando: '' };
       g.n++;
@@ -1239,7 +1420,7 @@
       const chipT = tasto('chip scambia', etichettaTipo(b.tipo), () => {
         leggi();
         scegliTipo(b, tipo => {
-          if (eSpostamento(b)) { b.conto = b.da; delete b.da; delete b.verso; }
+          if (eSpostamento(b)) { b.conto = contoReale(b); delete b.da; delete b.verso; delete b.chi; }
           sceltaMano = true; b.tipo = tipo;
           if (!valida(tipo, b.categoria)) b.categoria = ripiegoDi(tipo);
           disegnaForm();
@@ -1806,10 +1987,11 @@
   // Entrate e uscite della lista. Con un conto: solo quelle di quel conto, e il saldo conta anche gli spostamenti
   // (arrivati qui: più; partiti da qui: meno). Tutti insieme gli spostamenti non contano: restano soldi suoi.
   function totali(lista, conto) {
-    const t = { entrate: 0, uscite: 0, tasse: 0, spostati: 0, arrivati: 0, partiti: 0 };
+    const t = { entrate: 0, uscite: 0, tasse: 0, spostati: 0, arrivati: 0, partiti: 0, prestati: 0, ricevuti: 0 };
     for (const m of lista) {
       if (eSpostamento(m)) {
-        t.spostati += m.importo;
+        if (ePrestito(m)) { if (m.verso === PERSONE) t.prestati += m.importo; else t.ricevuti += m.importo; }
+        else t.spostati += m.importo;
         if (conto && m.verso === conto) t.arrivati += m.importo;
         if (conto && m.da === conto) t.partiti += m.importo;
         continue;
@@ -1923,7 +2105,7 @@
       const parti = new Map();
       for (const m of lista) {
         if (!eSpostamento(m)) continue;
-        const k = m.verso === conto ? 'da ' + m.da : 'verso ' + m.verso;
+        const k = m.verso === conto ? 'da ' + m.da : 'verso ' + m.verso;   // i prestiti: «da 🤝 Prestiti», tutti insieme
         parti.set(k, (parti.get(k) || 0) + m.importo);
       }
       rs.textContent = '↔ ' + [...parti.entries()].map(([k, v]) => {
@@ -1931,8 +2113,9 @@
         return (dir === 'da' ? '+' : '−') + euro(v) + ' ' + dir + ' ' + nomeConto(c);
       }).join(' · ');
       rs.hidden = false;
-    } else if (!conto && t.spostati) {
-      rs.textContent = '↔ Spostati fra i conti: ' + euro(t.spostati);
+    } else if (!conto && (t.spostati || t.prestati || t.ricevuti)) {
+      rs.textContent = [t.spostati ? '↔ Spostati fra i conti: ' + euro(t.spostati) : '',
+        t.prestati || t.ricevuti ? '🤝 ' + [t.prestati ? 'dati ' + euro(t.prestati) : '', t.ricevuti ? 'ricevuti ' + euro(t.ricevuti) : ''].filter(Boolean).join(', ') : ''].filter(Boolean).join(' · ');
       rs.hidden = false;
     } else rs.hidden = true;
 
@@ -1941,6 +2124,8 @@
     periodoBarre = periodoOra;
     disegnaBarre('uscita', lista, t.uscite);
     disegnaBarre('entrata', lista, t.entrate);
+    disegnaCalendario(lista);
+    disegnaRigaViaggio();
     $('sezMesi').hidden = vista.modo !== 'anno';
     if (vista.modo === 'anno') disegnaMesi();
     disegnaLista(lista);
@@ -2062,6 +2247,450 @@
     }
     altre.hidden = righe.length <= 8 || (!corte && !vista.tutte[tipo]);
     altre.textContent = corte ? 'Altre ' + (righe.length - 6) + ' categorie ›' : 'Solo le prime';
+  }
+
+  // ================================================================ prestiti (26/11/2026, sua scelta: «crediti e debiti»)
+  // Un prestito è uno spostamento fra un conto e le persone (PERSONE), con chi: i soldi escono dal conto (o ci entrano) ma
+  // non sono né una spesa né un'entrata. Per persona: quello che le ha dato meno quello che ha ricevuto da lei; più di zero
+  // «ti deve», meno di zero «gli devi». Si segnano a frase («prestati 50 a Marco») o da Menù → Prestiti.
+  function persone() {
+    const per = new Map();
+    for (const m of stato.movimenti) {
+      if (!ePrestito(m)) continue;
+      const k = A.normalizza(m.chi);
+      if (!per.has(k)) per.set(k, { nome: m.chi, chiave: k, saldo: 0, movimenti: [], ultimo: '' });
+      const p = per.get(k);
+      p.saldo += m.verso === PERSONE ? m.importo : -m.importo;
+      p.movimenti.push(m);
+      if (m.data >= p.ultimo) { p.ultimo = m.data; p.nome = m.chi; }
+    }
+    return [...per.values()];
+  }
+  const personaDi = nome => persone().find(p => p.chiave === A.normalizza(nome)) || null;
+  const testoSaldoPersona = p => p.saldo > 0 ? 'ti deve ' + euro(p.saldo) : p.saldo < 0 ? 'gli devi ' + euro(-p.saldo) : 'pari';
+  function totaliPrestiti() {
+    let crediti = 0, debiti = 0;
+    for (const p of persone()) { if (p.saldo > 0) crediti += p.saldo; else debiti -= p.saldo; }
+    return { crediti, debiti };
+  }
+  function apriPrestiti() {
+    apriFoglio('Prestiti', corpo => {
+      const tp = totaliPrestiti(), tutte = persone();
+      const t = el('div', 'tessere');
+      for (const [etichetta, v, id, classe] of [['Ti devono', tp.crediti, 'prestitiCrediti', 'entrata'], ['Devi', tp.debiti, 'prestitiDebiti', '']]) {
+        const x = el('div', 'tessera');
+        x.appendChild(el('span', 't-etichetta', etichetta));
+        const val = el('span', 't-valore ' + classe, euro(v));
+        val.id = id;
+        x.appendChild(val);
+        t.appendChild(x);
+      }
+      corpo.appendChild(t);
+      const riga = (p) => {
+        const b = el('button', 'mov');
+        b.type = 'button';
+        b.dataset.persona = p.chiave;
+        b.appendChild(riquadro('🤝'));
+        const testi = el('span', 'mov-testi');
+        testi.appendChild(el('span', 'mov-desc', p.nome));
+        testi.appendChild(el('span', 'mov-cat', p.saldo > 0 ? 'ti deve' : p.saldo < 0 ? 'gli devi' : 'pari · ' + etichettaGiorno(p.ultimo).toLowerCase()));
+        b.appendChild(testi);
+        if (p.saldo) b.appendChild(el('span', 'mov-importo' + (p.saldo > 0 ? ' entrata' : ''), euro(Math.abs(p.saldo))));
+        b.addEventListener('click', () => apriPersona(p.nome));
+        return b;
+      };
+      const aperte = tutte.filter(p => p.saldo).sort((a, b) => Math.abs(b.saldo) - Math.abs(a.saldo));
+      const pari = tutte.filter(p => !p.saldo).sort((a, b) => b.ultimo.localeCompare(a.ultimo));
+      const lista = el('div', 'elenco-righe');
+      lista.id = 'listaPersone';
+      for (const p of aperte) lista.appendChild(riga(p));
+      if (!aperte.length) lista.appendChild(el('p', 'vuoto', 'Nessuno ti deve niente e non devi niente.'));
+      corpo.appendChild(lista);
+      if (pari.length) {
+        corpo.appendChild(el('div', 'titoletto', 'Pari'));
+        const l2 = el('div', 'elenco-righe');
+        l2.id = 'listaPari';
+        for (const p of pari) l2.appendChild(riga(p));
+        corpo.appendChild(l2);
+      }
+      const r = el('div', 'riga-tasti');
+      const nuovo = tasto('tasto-primario', '＋ Nuovo prestito', () => { foglioSotto = apriPrestiti; formPrestito({}); });
+      nuovo.id = 'nuovoPrestito';
+      r.appendChild(nuovo);
+      corpo.appendChild(r);
+    });
+  }
+  function apriPersona(nome) {
+    const p = personaDi(nome);
+    if (!p) { apriPrestiti(); return; }
+    foglioSotto = apriPrestiti;
+    apriFoglio(p.nome, corpo => {
+      const s = el('p', 'riassunto', p.saldo > 0 ? 'Ti deve ' + euro(p.saldo) : p.saldo < 0 ? 'Gli devi ' + euro(-p.saldo) : 'Siete pari');
+      s.id = 'saldoPersona';
+      corpo.appendChild(s);
+      const r = el('div', 'riga-tasti colonna');
+      // il tasto di quello che ci si aspetta per primo, con la cifra che manca
+      const ridato = tasto(p.saldo > 0 ? 'tasto-primario' : 'tasto-secondario', 'Mi ha dato', () => { foglioSotto = () => apriPersona(p.nome); formPrestito({ chi: p.nome, aMe: true, importo: p.saldo > 0 ? p.saldo : null }); });
+      ridato.id = 'miHaDato';
+      const dato = tasto(p.saldo < 0 ? 'tasto-primario' : 'tasto-secondario', 'Gli ho dato', () => { foglioSotto = () => apriPersona(p.nome); formPrestito({ chi: p.nome, aMe: false, importo: p.saldo < 0 ? -p.saldo : null }); });
+      dato.id = 'gliHoDato';
+      if (p.saldo < 0) { r.appendChild(dato); r.appendChild(ridato); } else { r.appendChild(ridato); r.appendChild(dato); }
+      corpo.appendChild(r);
+      corpo.appendChild(el('div', 'titoletto', 'Movimenti'));
+      const lista = el('div', 'risultati');
+      lista.id = 'movimentiPersona';
+      let giorno = null;
+      for (const m of p.movimenti.slice().sort(piuRecenti)) {
+        if (m.data !== giorno) { giorno = m.data; lista.appendChild(titoloGiorno(m.data, m.data > isoOggi(), 0)); }
+        lista.appendChild(rigaMovimento(m, { prima: () => {}, dopo: () => apriPersona(p.nome) }, null));
+      }
+      corpo.appendChild(lista);
+    });
+  }
+  // pre: { chi, aMe (true: i soldi arrivano a te), importo }
+  function formPrestito(pre) {
+    const torna = foglioSotto;
+    const b = { chi: pre.chi || '', aMe: !!pre.aMe, conto: vista.conto || A.CONTO_BASE, data: isoOggi(), scritto: pre.importo ? formatoPerCampo(pre.importo) : '' };
+    const disegnaForm = () => apriFoglio(pre.chi ? pre.chi : 'Nuovo prestito', corpo => {
+      foglioSotto = torna;
+      const inChi = inputTesto(b.chi);
+      inChi.id = 'prestitoChi';
+      inChi.placeholder = 'Nome';
+      inChi.setAttribute('autocapitalize', 'words');
+      if (!pre.chi) corpo.appendChild(campo('Chi', inChi));
+      const leggi = () => { b.chi = inChi.value; b.scritto = inImp.value; };
+      const seg = el('div', 'segmentato largo');
+      seg.id = 'versoPrestito';
+      for (const [aMe, testo] of [[false, pre.chi ? 'Gli ho dato' : 'Dati'], [true, pre.chi ? 'Mi ha dato' : 'Ricevuti']]) {
+        const x = tasto('', testo, () => { leggi(); b.aMe = aMe; disegnaForm(); });
+        x.dataset.ame = String(aMe);
+        x.setAttribute('aria-pressed', String(b.aMe === aMe));
+        seg.appendChild(x);
+      }
+      corpo.appendChild(seg);
+      const inImp = inputTesto(b.scritto, 'decimal');
+      inImp.id = 'prestitoImporto';
+      corpo.appendChild(campo('Importo in euro', inImp));
+      const g = el('div', 'griglia-conti');
+      g.id = 'prestitoConto';
+      for (const c of A.CONTI) {
+        const x = tasto('opzione conto-opzione', '', () => { leggi(); b.conto = c.id; disegnaForm(); });
+        x.dataset.conto = c.id;
+        x.appendChild(el('span', 'conto-icona', c.icona));
+        x.appendChild(el('span', 'conto-nome', c.nome));
+        x.setAttribute('aria-pressed', String(c.id === b.conto));
+        g.appendChild(x);
+      }
+      corpo.appendChild(el('div', 'titoletto', b.aMe ? 'Dove arrivano' : 'Da dove escono'));
+      corpo.appendChild(g);
+      const inData = el('input');
+      inData.type = 'date';
+      inData.id = 'prestitoData';
+      inData.value = b.data;
+      inData.addEventListener('change', () => { if (/^\d{4}-\d{2}-\d{2}$/.test(inData.value)) b.data = inData.value; });
+      corpo.appendChild(campo('Quando', inData));
+      const r = el('div', 'riga-tasti');
+      const salva = tasto('tasto-primario', 'Salva', () => {
+        leggi();
+        const chi = pulisciNome(b.chi);
+        const v = leggiEuro(b.scritto);
+        if (!chi) { mostraToast('Scrivi il nome'); inChi.focus(); return; }
+        if (!(v > 0)) { mostraToast('Importo non valido'); inImp.focus(); return; }
+        const prima = personaDi(chi), saldo = prima ? prima.saldo : 0, nome = prima ? prima.nome : chi;
+        // «Ridati» se chiude (anche in parte) quello che c'era, se no «Prestito»
+        const descr = ((b.aMe ? saldo > 0 : saldo < 0) ? 'Ridati ' : 'Prestito ') + (b.aMe ? 'da ' : 'a ') + nome;
+        const m = { id: nuovoId(), data: b.data, tipo: 'spostamento', importo: v, categoria: A.SPOSTAMENTO, descrizione: descr,
+          da: b.aMe ? PERSONE : b.conto, verso: b.aMe ? b.conto : PERSONE, chi: nome, creato: new Date().toISOString() };
+        stato.movimenti.push(m);
+        if (!scrivi()) { stato.movimenti.pop(); return; }
+        disegna();
+        suonaMovimento('spostamento');
+        apriPersona(nome);
+      });
+      salva.id = 'salvaPrestito';
+      r.appendChild(salva);
+      corpo.appendChild(r);
+    });
+    disegnaForm();
+  }
+
+  // ================================================================ i viaggi (26/11/2026, sua scelta)
+  // Un viaggio è un nome e due date (stato.viaggi). Prende da solo le uscite e le entrate di quei giorni, ma non i fissi né
+  // gli spostamenti: l'abbonamento e un prelievo non sono il viaggio. Dalla modifica di un movimento lo si mette o lo si
+  // toglie a mano: m.viaggio = l'id del viaggio, o 'no'. Il foglio del viaggio: speso, al giorno, per categoria, per conto,
+  // i movimenti. Mentre è in viaggio, una riga nel riepilogo.
+  // dichiarate come funzioni: disegna() può servirle prima che il codice arrivi fin qui
+  function viaggi() { return stato.viaggi || (stato.viaggi = []); }
+  function viaggiPerData(m) {
+    if (eSpostamento(m) || m.ricorrente) return [];
+    return viaggi().filter(v => m.data >= v.dal && m.data <= v.al);
+  }
+  function viaggiDi(m) {
+    if (eSpostamento(m)) return [];
+    if (m.viaggio) return m.viaggio === 'no' ? [] : viaggi().filter(v => v.id === m.viaggio);
+    return viaggiPerData(m);
+  }
+  function contiViaggio(v) {
+    const lista = stato.movimenti.filter(m => viaggiDi(m).includes(v));
+    let uscite = 0, entrate = 0;
+    for (const m of lista) { if (m.tipo === 'uscita') uscite += m.importo; else if (m.tipo === 'entrata') entrate += m.importo; }
+    return { lista, uscite, entrate };
+  }
+  function inCorso(v) { return v.dal <= isoOggi() && v.al >= isoOggi(); }
+  function viaggioInCorso() { return viaggi().filter(inCorso).sort((a, b) => b.dal.localeCompare(a.dal))[0] || null; }
+  function disegnaRigaViaggio() {
+    const b = $('rigaViaggio'), v = viaggioInCorso();
+    b.hidden = !v;
+    if (!v) return;
+    b.textContent = '';
+    b.dataset.viaggio = v.id;
+    b.appendChild(el('span', 'rv-icona', '✈️'));
+    b.appendChild(el('span', 'rv-nome', v.nome));
+    b.appendChild(el('span', 'rv-speso', 'speso ' + euro(contiViaggio(v).uscite)));
+    b.appendChild(el('span', 'cat-freccia', '›'));
+    b.onclick = () => apriViaggio(v.id, null);
+    b.setAttribute('aria-label', 'In viaggio: ' + v.nome + ', speso ' + euro(contiViaggio(v).uscite) + '. Tocca per aprirlo.');
+  }
+  function apriViaggi() {
+    apriFoglio('Viaggi', corpo => {
+      const lista = el('div', 'elenco-righe');
+      lista.id = 'listaViaggi';
+      const ordinati = viaggi().slice().sort((a, b) => b.dal.localeCompare(a.dal));
+      for (const v of ordinati) {
+        const b = el('button', 'mov');
+        b.type = 'button';
+        b.dataset.viaggio = v.id;
+        b.appendChild(riquadro('✈️'));
+        const testi = el('span', 'mov-testi');
+        testi.appendChild(el('span', 'mov-desc', v.nome));
+        testi.appendChild(el('span', 'mov-cat', testoPeriodo(v.dal, v.al) + (inCorso(v) ? ' · in corso' : '')));
+        b.appendChild(testi);
+        b.appendChild(el('span', 'mov-importo', euro(contiViaggio(v).uscite)));
+        b.addEventListener('click', () => apriViaggio(v.id));
+        lista.appendChild(b);
+      }
+      if (!ordinati.length) lista.appendChild(el('p', 'vuoto', 'Nessuno.'));
+      corpo.appendChild(lista);
+      const riga = el('div', 'riga-tasti');
+      const nuovo = tasto('tasto-primario', '＋ Nuovo viaggio', () => { foglioSotto = apriViaggi; formViaggio(null); });
+      nuovo.id = 'nuovoViaggio';
+      riga.appendChild(nuovo);
+      corpo.appendChild(riga);
+    });
+  }
+  // sotto: dove si torna toccando fuori (dalla lista dei viaggi; dalla riga nella pagina, da nessuna parte)
+  function apriViaggio(id, sotto) {
+    const v = viaggi().find(x => x.id === id);
+    if (!v) { apriViaggi(); return; }
+    if (sotto === undefined) sotto = apriViaggi;
+    foglioSotto = sotto;
+    apriFoglio(v.nome, corpo => {
+      const c = contiViaggio(v), o = isoOggi();
+      corpo.appendChild(el('p', 'nota-su', testoPeriodo(v.dal, v.al) + (inCorso(v) ? ' · in corso' : v.dal > o ? ' · deve ancora cominciare' : '')));
+      // al giorno: sui giorni passati del viaggio (in corso, fino a oggi)
+      const fine = v.al < o ? v.al : o;
+      const giorni = v.dal > o ? 0 : Math.round((daIso(fine) - daIso(v.dal)) / GIORNO_MS) + 1;
+      const t = el('div', 'tessere senza-punti');
+      const tessera = (etichetta, valore, id) => {
+        const x = el('div', 'tessera');
+        x.appendChild(el('span', 't-etichetta', etichetta));
+        const val = el('span', 't-valore', valore);
+        val.id = id;
+        x.appendChild(val);
+        t.appendChild(x);
+      };
+      tessera('Speso', euro(c.uscite), 'viaggioSpeso');
+      tessera('Al giorno', giorni && c.uscite ? euro(Math.round(c.uscite / giorni)) : '—', 'viaggioAlGiorno');
+      corpo.appendChild(t);
+      if (c.entrate) corpo.appendChild(el('p', 'nota', 'Entrate nel viaggio: ' + euro(c.entrate)));
+      const uscite = c.lista.filter(m => m.tipo === 'uscita');
+      if (uscite.length) {
+        corpo.appendChild(el('div', 'titoletto', 'Per categoria'));
+        const per = new Map();
+        for (const m of uscite) per.set(m.categoria, (per.get(m.categoria) || 0) + m.importo);
+        const righe = el('div', 'elenco-righe');
+        righe.id = 'viaggioCategorie';
+        for (const [nome, cent] of [...per.entries()].sort((a, b) => b[1] - a[1])) {
+          const r = el('div', 'cat-riga');
+          r.appendChild(el('span', 'cat-icona', iconaDi('uscita', nome)));
+          r.appendChild(el('span', 'cat-nome', nome));
+          r.appendChild(el('span', 'cat-usi', euro(cent) + ' · ' + percento(cent, c.uscite)));
+          righe.appendChild(r);
+        }
+        corpo.appendChild(righe);
+        const conti = new Map();
+        for (const m of uscite) conti.set(contoDi(m), (conti.get(contoDi(m)) || 0) + m.importo);
+        if (conti.size > 1) {
+          const p = el('p', 'nota', [...conti.entries()].sort((a, b) => b[1] - a[1]).map(([k, v2]) => infoConto(k).icona + ' ' + infoConto(k).nome + ' ' + euro(v2)).join(' · '));
+          p.id = 'viaggioConti';
+          corpo.appendChild(p);
+        }
+      }
+      corpo.appendChild(el('div', 'titoletto', 'Movimenti'));
+      const lista = el('div', 'risultati');
+      lista.id = 'viaggioMovimenti';
+      let giorno = null;
+      for (const m of c.lista.slice().sort(piuRecenti)) {
+        if (m.data !== giorno) { giorno = m.data; lista.appendChild(titoloGiorno(m.data, m.data > o, spesoNelGiorno(c.lista, m.data))); }
+        lista.appendChild(rigaMovimento(m, { prima: () => {}, dopo: () => apriViaggio(id, sotto) }, null));
+      }
+      if (!c.lista.length) lista.appendChild(el('p', 'vuoto', v.dal > o ? 'Le spese di quei giorni entrano da sole.' : 'Nessun movimento in quei giorni.'));
+      corpo.appendChild(lista);
+      const riga = el('div', 'riga-tasti');
+      const mod = tasto('tasto-secondario', 'Modifica viaggio', () => { foglioSotto = () => apriViaggio(id, sotto); formViaggio(v); });
+      mod.id = 'modificaViaggio';
+      riga.appendChild(mod);
+      corpo.appendChild(riga);
+    });
+  }
+  function formViaggio(v) {
+    const torna = foglioSotto;
+    apriFoglio(v ? 'Modifica viaggio' : 'Nuovo viaggio', corpo => {
+      const inNome = inputTesto(v ? v.nome : '');
+      inNome.id = 'viaggioNome';
+      inNome.placeholder = 'Lisbona';
+      corpo.appendChild(campo('Nome', inNome));
+      const date = el('div', 'riga-date');
+      const inDa = el('input'); inDa.type = 'date'; inDa.id = 'viaggioDal'; inDa.value = v ? v.dal : isoOggi();
+      const inA = el('input'); inA.type = 'date'; inA.id = 'viaggioAl'; inA.value = v ? v.al : isoOggi();
+      date.appendChild(campo('Dal', inDa));
+      date.appendChild(campo('Al', inA));
+      corpo.appendChild(date);
+      const riga = el('div', 'riga-tasti');
+      if (v) riga.appendChild(tasto('tasto-pericolo', 'Elimina', () => {
+        conferma('Eliminare «' + v.nome + '»?', 'I movimenti restano.', 'Elimina', () => {
+          const i = viaggi().indexOf(v);
+          if (i < 0) return;
+          viaggi().splice(i, 1);
+          const legati = stato.movimenti.filter(m => m.viaggio === v.id);
+          for (const m of legati) delete m.viaggio;
+          scrivi();
+          disegna();
+          apriViaggi();
+          mostraToast('Viaggio eliminato', 'Annulla', () => {
+            viaggi().splice(i, 0, v);
+            for (const m of legati) m.viaggio = v.id;
+            scrivi(); disegna();
+            if (!$('foglio').hidden) apriViaggi();
+          });
+        }, () => { foglioSotto = torna; formViaggio(v); });
+      }));
+      const salva = tasto('tasto-primario', 'Salva', () => {
+        const nome = pulisciNome(inNome.value);
+        const buona = x => /^\d{4}-\d{2}-\d{2}$/.test(x);
+        if (!nome) { mostraToast('Scrivi il nome'); inNome.focus(); return; }
+        if (!buona(inDa.value) || !buona(inA.value)) { mostraToast('Scegli le date'); return; }
+        let dal = inDa.value, al = inA.value;
+        if (dal > al) { const x = dal; dal = al; al = x; }
+        const x = v || { id: nuovoId(), creato: new Date().toISOString() };
+        Object.assign(x, { nome, dal, al });
+        if (!v) viaggi().push(x);
+        if (!scrivi()) return;
+        disegna();
+        apriViaggio(x.id);
+      });
+      salva.id = 'salvaViaggio';
+      riga.appendChild(salva);
+      corpo.appendChild(riga);
+    });
+  }
+  // dalla modifica di un movimento: in quale viaggio (bozza.viaggio: un id, 'no', o niente = secondo le date)
+  function scegliViaggio(bozza, orig, dopo) {
+    apriFoglio('Viaggio', corpo => {
+      const prova = viaggio => ({ tipo: bozza.tipo, data: bozza.data, ricorrente: orig.ricorrente, viaggio });
+      const perData = viaggiPerData(prova(undefined));
+      const ora = viaggiDi(prova(bozza.viaggio));
+      const lista = el('div', 'elenco-azioni');
+      lista.id = 'sceltaViaggio';
+      // prima quelli più vicini alla data del movimento
+      const vicini = viaggi().slice().sort((a, b) => Math.abs(daIso(a.dal) - daIso(bozza.data)) - Math.abs(daIso(b.dal) - daIso(bozza.data)));
+      for (const v of vicini) {
+        const b = tasto('azione' + (ora.includes(v) ? ' scelta' : ''), '✈️ ' + v.nome, () => {
+          if (perData.length === 1 && perData[0] === v) delete bozza.viaggio; else bozza.viaggio = v.id;
+          dopo();
+        });
+        b.dataset.viaggio = v.id;
+        b.setAttribute('aria-pressed', String(ora.includes(v)));
+        b.appendChild(el('small', '', testoPeriodo(v.dal, v.al)));
+        lista.appendChild(b);
+      }
+      const no = tasto('azione' + (ora.length ? '' : ' scelta'), 'Nessun viaggio', () => {
+        if (perData.length) bozza.viaggio = 'no'; else delete bozza.viaggio;
+        dopo();
+      });
+      no.dataset.viaggio = 'no';
+      no.setAttribute('aria-pressed', String(!ora.length));
+      lista.appendChild(no);
+      corpo.appendChild(lista);
+    });
+  }
+
+  // ================================================================ il calendario del mese (26/11/2026, sua scelta)
+  // Solo nel mese: un riquadro per giorno, da lunedì, con le uscite del giorno e, in verde, le entrate. Più ha speso, più il
+  // riquadro è pieno (un colore solo, come il grafico dell'anno). Oggi cerchiato; i giorni che devono ancora venire (i fissi
+  // in arrivo) in corsivo. Segue il conto che guarda e la categoria toccata. Toccando un giorno, i suoi movimenti.
+  // al massimo quattro segni, perché ci stia anche sull'iPhone più stretto: 4,50 · 85 · 1,2k · 35k · 940k · 1,2M
+  function cifraCorta(cent) {
+    const e = cent / 100;
+    if (e >= 999500) return (Math.round(e / 100000) / 10).toLocaleString('it-IT') + 'M';
+    if (e >= 9950) return Math.round(e / 1000) + 'k';
+    if (e >= 1000) return (Math.round(e / 100) / 10).toLocaleString('it-IT') + 'k';
+    if (e >= 10) return String(Math.round(e));
+    return e.toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function disegnaCalendario(lista) {
+    const sez = $('sezCalendario');
+    sez.hidden = vista.modo !== 'mese';
+    if (sez.hidden) return;
+    const conto = vista.conto, f = vista.filtro;
+    const k = vista.anno + '-' + String(vista.mese + 1).padStart(2, '0');
+    const quanti = new Date(vista.anno, vista.mese + 1, 0).getDate();
+    const per = new Map();
+    for (const m of lista) {
+      if (eSpostamento(m) || (conto && contoDi(m) !== conto)) continue;
+      if (f && (m.tipo !== f.tipo || m.categoria !== f.nome)) continue;
+      const g = Number(m.data.slice(8, 10));
+      const x = per.get(g) || { u: 0, e: 0 };
+      if (m.tipo === 'entrata') x.e += m.importo; else x.u += m.importo;
+      per.set(g, x);
+    }
+    $('titoloCalendario').textContent = 'Giorno per giorno' + (f ? ' · ' + f.nome : '');
+    const box = $('calendario');
+    box.textContent = '';
+    const primo = (new Date(vista.anno, vista.mese, 1).getDay() + 6) % 7;   // lunedì = 0
+    for (let i = 0; i < primo; i++) box.appendChild(el('span', 'cal-vuoto'));
+    let max = 0;
+    for (const x of per.values()) if (x.u > max) max = x.u;
+    const oggiIso = isoOggi();
+    let caro = null, senza = 0;
+    for (let g = 1; g <= quanti; g++) {
+      const iso = k + '-' + String(g).padStart(2, '0'), x = per.get(g);
+      const b = el('button', 'cal-giorno');
+      b.type = 'button';
+      b.dataset.giorno = iso;
+      if (iso === oggiIso) b.classList.add('oggi');
+      if (iso > oggiIso) b.classList.add('futuro');
+      b.appendChild(el('span', 'cal-numero', String(g)));
+      const nome = GIORNI[daIso(iso).getDay()] + ' ' + g + ' ' + MESI[vista.mese];
+      if (x) {
+        if (x.u) { b.appendChild(el('span', 'cal-uscite', cifraCorta(x.u))); b.style.setProperty('--calore', (x.u / max).toFixed(3)); b.classList.add('speso'); }
+        if (x.e) b.appendChild(el('span', 'cal-entrate', '+' + cifraCorta(x.e)));
+        b.setAttribute('aria-label', nome + ': ' + [x.u ? 'uscite ' + euro(x.u) : '', x.e ? 'entrate ' + euro(x.e) : ''].filter(Boolean).join(', '));
+        b.addEventListener('click', () => apriMovimenti({ periodo: 'scelto', da: iso, a: iso, conto, categoria: f ? { tipo: f.tipo, nome: f.nome } : null }));
+        if (x.u && (!caro || x.u > caro.u)) caro = { g, u: x.u, iso };
+      } else {
+        b.disabled = true;
+        b.setAttribute('aria-label', nome + ': niente');
+      }
+      if (iso <= oggiIso && !(x && x.u)) senza++;
+      box.appendChild(b);
+    }
+    // sotto: il giorno più caro e quanti giorni senza spese (fino a oggi)
+    const parti = [];
+    if (caro) parti.push('Più caro: ' + GIORNI_BREVI[daIso(caro.iso).getDay()] + ' ' + caro.g + ', ' + euro(caro.u));
+    if (k <= oggiIso.slice(0, 7) && !f) parti.push('senza spese: ' + (senza === 1 ? '1 giorno' : senza + ' giorni'));
+    $('calNota').textContent = parti.join(' · ');
+    $('calNota').hidden = !parti.length;
   }
 
   function disegnaMesi() {
@@ -2200,7 +2829,7 @@
     b.type = 'button';
     b.dataset.id = m.id;
     const spost = eSpostamento(m);
-    b.appendChild(riquadro(spost ? '↔' : iconaDi(m.tipo, m.categoria)));
+    b.appendChild(riquadro(ePrestito(m) ? '🤝' : spost ? '↔' : iconaDi(m.tipo, m.categoria)));
     const testi = el('span', 'mov-testi');
     testi.appendChild(el('span', 'mov-desc', m.descrizione));
     // il conto: per gli spostamenti da… a…; tutti insieme, il simbolo del conto
@@ -2215,8 +2844,10 @@
     // uno spostamento, guardando un conto: più se arriva qui, meno se parte da qui; tutti insieme, senza segno
     let segno = segnoDi(m.tipo), classe = m.tipo;
     if (spost) {
-      segno = conto ? (m.verso === conto ? '+' : '−') : '';
-      classe = 'spostamento' + (conto && m.verso === conto ? ' entrata' : '');
+      // un prestito, anche tutti insieme: meno se i soldi escono, più se tornano
+      const entra = conto ? m.verso === conto : ePrestito(m) && m.da === PERSONE;
+      segno = conto || ePrestito(m) ? (entra ? '+' : '−') : '';
+      classe = 'spostamento' + (entra ? ' entrata' : '');
     }
     b.appendChild(el('span', 'mov-importo ' + classe, segno + euro(Math.abs(m.importo))));
     b.setAttribute('aria-label', m.descrizione + ', ' + sotto + ', ' + etichettaTipo(m.tipo) + ' ' + euro(Math.abs(m.importo)) + '. Tocca per modificare.');
@@ -2231,6 +2862,7 @@
     if (!orig) return;
     const bozza = copiaConto({ tipo: orig.tipo, categoria: orig.categoria, data: orig.data, descrizione: orig.descrizione,
       importo: Math.abs(orig.importo), ripeti: false, giorno: daIso(orig.data).getDate() }, orig);
+    if (orig.viaggio) bozza.viaggio = orig.viaggio;
     const fissoDi = () => orig.ricorrente && stato.ricorrenti.find(r => r.id === orig.ricorrente);
     const ridisegna = () => { foglioSotto = null; disegnaModifica(); };
     const disegnaModifica = () => apriFoglio('Modifica movimento', corpo => {
@@ -2249,7 +2881,7 @@
       g.appendChild(tasto('chip scambia', etichettaTipo(bozza.tipo), () => {
         leggiCampi();
         scegliTipo(bozza, tipo => {
-          if (eSpostamento(bozza)) { bozza.conto = bozza.da; delete bozza.da; delete bozza.verso; }   // resta dov'era partito
+          if (eSpostamento(bozza)) { bozza.conto = contoReale(bozza); delete bozza.da; delete bozza.verso; delete bozza.chi; }   // resta dov'era partito
           bozza.tipo = tipo;
           if (!valida(tipo, bozza.categoria)) bozza.categoria = ripiegoDi(tipo);
           ridisegna();
@@ -2280,6 +2912,17 @@
           fissoDi() ? null : { acceso: bozza.ripeti, giorno: bozza.giorno, senzaInizio: true,
             alCambiare: v => { bozza.ripeti = v.acceso; bozza.giorno = v.giorno; } });
       }));
+      // il viaggio: solo se ce n'è almeno uno (26/11/2026)
+      if (viaggi().length && !eSpostamento(bozza)) {
+        const dentro = viaggiDi({ tipo: bozza.tipo, data: bozza.data, ricorrente: orig.ricorrente, viaggio: bozza.viaggio });
+        const chipV = tasto('chip', '✈️ ' + (dentro.length ? dentro.map(v => v.nome).join(', ') : 'Nessun viaggio'), () => {
+          leggiCampi();
+          foglioSotto = ridisegna;
+          scegliViaggio(bozza, orig, ridisegna);
+        });
+        chipV.id = 'modViaggio';
+        g.appendChild(chipV);
+      }
       corpo.appendChild(g);
       if (!orig.ricorrente && !bozza.ripeti && bozza.data > isoOggi()) corpo.appendChild(el('p', 'avviso', 'La data è nel futuro: controllala.'));
       corpo.appendChild(campo('Importo in euro', inImp));
@@ -2297,6 +2940,7 @@
           tipo: bozza.tipo, categoria: bozza.categoria, data: bozza.data, descrizione: bozza.descrizione || bozza.categoria,
           importo: bozza.importo, modificato: new Date().toISOString()
         });
+        if (bozza.viaggio && !eSpostamento(bozza)) orig.viaggio = bozza.viaggio; else delete orig.viaggio;
         copiaConto(orig, bozza);
         return true;
       };
@@ -2368,7 +3012,10 @@
     const dalSaldo = CONTI_ID.map(c => stato.saldi[c] && stato.saldi[c].data).filter(Boolean).sort()[0];
     if (dalSaldo) out.push('#creati ' + JSON.stringify(Object.fromEntries(righe.filter(m => m.data >= dalSaldo && m.creato).map(m => [m.id, m.creato]))));
     out.push('#tasse ' + JSON.stringify(stato.tasse));
+    if (righe.some(ePrestito)) out.push('#chi ' + JSON.stringify(Object.fromEntries(righe.filter(ePrestito).map(m => [m.id, m.chi]))));
     out.push('#legami ' + JSON.stringify(Object.fromEntries(righe.filter(m => m.ricorrente).map(m => [m.id, m.ricorrente]))));
+    if (viaggi().length) out.push('#viaggi ' + JSON.stringify(viaggi()));
+    if (righe.some(m => m.viaggio)) out.push('#nelviaggio ' + JSON.stringify(Object.fromEntries(righe.filter(m => m.viaggio).map(m => [m.id, m.viaggio]))));
     return out.join('\n');
   }
 
@@ -2462,7 +3109,7 @@
     for (const riga of String(testo).split(/\r?\n/)) {
       const r = riga.trim();
       if (!r) continue;
-      const m = r.match(/^#(schema|imparate|fissi|categorie|saldo|saldi|conti|creati|tasse|legami|preferenze) (.*)$/);
+      const m = r.match(/^#(schema|imparate|fissi|categorie|saldo|saldi|conti|creati|tasse|legami|preferenze|viaggi|nelviaggio|chi) (.*)$/);
       if (m) { try { meta[m[1]] = JSON.parse(m[2]); } catch (e) { /* riga rovinata: si ignora */ } continue; }
       // anche l'intestazione con davanti il titolo della condivisione («Conti # Conti — esportazione…»)
       if (r.startsWith('#') || r.startsWith('data;') || /#\s*Conti — esportazione/.test(r)) continue;
@@ -2494,6 +3141,12 @@
       scriviPref();
       applicaSfondo();
     }
+    const iso = x => typeof x === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x);
+    if (Array.isArray(meta.viaggi)) for (const v of meta.viaggi) {
+      if (v && typeof v.id === 'string' && typeof v.nome === 'string' && iso(v.dal) && iso(v.al) && !viaggi().some(x => x.id === v.id))
+        viaggi().push({ id: v.id, nome: pulisciNome(v.nome) || 'Viaggio', dal: v.dal <= v.al ? v.dal : v.al, al: v.dal <= v.al ? v.al : v.dal, creato: v.creato || new Date().toISOString() });
+    }
+    const nelViaggio = meta.nelviaggio && typeof meta.nelviaggio === 'object' ? meta.nelviaggio : {};
     const legami = meta.legami && typeof meta.legami === 'object' ? meta.legami : {};
     const creati = meta.creati && typeof meta.creati === 'object' ? meta.creati : {};
     for (const r of righe) {
@@ -2514,8 +3167,10 @@
       let conti = null;
       if (tipo === 'spostamento') {
         const [da, verso] = contoCol.split('>');
-        if (!CONTI_ID.includes(da) || !CONTI_ID.includes(verso) || da === verso) { esito.scartati++; continue; }
-        conti = { tipo, da, verso };
+        const chi = meta.chi && typeof meta.chi === 'object' && typeof meta.chi[id] === 'string' ? pulisciNome(meta.chi[id]) : '';
+        const buono = x => CONTI_ID.includes(x) || (x === PERSONE && !!chi);
+        if (!buono(da) || !buono(verso) || da === verso) { esito.scartati++; continue; }
+        conti = { tipo, da, verso, chi };
       } else conti = { conto: CONTI_ID.includes(contoCol) ? contoCol : A.CONTO_BASE };
       if (!id) id = 'imp-' + hash(r);
       if (ids.has(id)) { esito.presenti++; continue; }
@@ -2529,6 +3184,7 @@
       const creato = typeof creati[id] === 'string' ? creati[id] : new Date().toISOString();
       const mov = copiaConto({ id, data, tipo, importo: Math.round(Math.abs(n) * 100), categoria: cat, descrizione: descrizione || cat, creato, importato: true }, conti);
       if (legami[id]) mov.ricorrente = legami[id];
+      if (typeof nelViaggio[id] === 'string' && tipo !== 'spostamento') mov.viaggio = nelViaggio[id];
       stato.movimenti.push(mov);
       ids.add(id);
       esito.aggiunti++;
@@ -2675,6 +3331,18 @@
       azioni.style.marginTop = '10px';
       corpo.appendChild(azioni);
 
+      const tp = totaliPrestiti();
+      const bPrestiti = tasto('azione', '🤝 Prestiti', apriPrestiti);
+      bPrestiti.id = 'vocePrestiti';
+      bPrestiti.appendChild(el('small', '', tp.crediti || tp.debiti ? [tp.crediti ? 'Ti devono ' + euro(tp.crediti) : '', tp.debiti ? 'devi ' + euro(tp.debiti) : ''].filter(Boolean).join(' · ') : 'Chi ti deve, a chi devi.'));
+      azioni.appendChild(bPrestiti);
+
+      const vc = viaggioInCorso(), nv = viaggi().length;
+      const bViaggi = tasto('azione', '✈️ Viaggi', apriViaggi);
+      bViaggi.id = 'voceViaggi';
+      bViaggi.appendChild(el('small', '', vc ? 'In corso: ' + vc.nome : nv ? nv + (nv === 1 ? ' viaggio' : ' viaggi') : 'Le spese di un viaggio, a parte.'));
+      azioni.appendChild(bViaggi);
+
       const bEsp = tasto('azione', '📤 Esporta e condividi', () => apriEsporta('mese'));
       bEsp.appendChild(el('small', '', 'Copia o condividi un periodo.'));
       azioni.appendChild(bEsp);
@@ -2787,8 +3455,11 @@
     const prima = JSON.stringify(stato);
     const fatto = salvaCopia('prima di tornare a una copia');
     const metti = testo => {
-      try { localStorage.setItem(CHIAVE, testo); } catch (e) { mostraToast('Non riesco a salvare: spazio del telefono pieno?'); return false; }
-      stato = carica();
+      const nuovo = daTesto(testo);
+      const rev = stato.rev || 0;
+      stato = nuovo;
+      stato.rev = Math.max(rev, stato.rev || 0);
+      if (!scrivi()) return false;
       scelte = [];
       vista.filtro = null;
       generaRicorrenti(true);
@@ -2828,11 +3499,42 @@
       });
     });
   }
+  // i recenti ci sono ma i vecchi (in IndexedDB) no: il telefono li ha cancellati. Dall'ultima copia buona si rimettono
+  // solo quelli prima di archivioDal, senza toccare i recenti
+  function offriVecchi() {
+    elencoCopie().then(l => {
+      const buona = l.find(c => c.movimenti > stato.movimenti.length);
+      if (!buona) { mostraToast('I movimenti più vecchi non ci sono più', null, null, 12000); return; }
+      apriFoglio('I movimenti più vecchi non ci sono più', corpo => {
+        corpo.appendChild(el('p', '', 'Ho una copia di ' + quandoCopia(buona).toLowerCase() + ', con ' + movimenti_(buona.movimenti) + '.'));
+        const riga = el('div', 'riga-tasti colonna');
+        const b = tasto('tasto-primario', 'Rimetti i vecchi', () => {
+          let s = null;
+          try { s = JSON.parse(buona.testo); } catch (e) { s = null; }
+          if (!s || !Array.isArray(s.movimenti)) { mostraToast('Questa copia non si legge'); return; }
+          const ci = new Set(stato.movimenti.map(m => m.id));
+          const vecchi = s.movimenti.filter(m => m.data < archivioDal && !ci.has(m.id));
+          stato.movimenti = vecchi.concat(stato.movimenti);
+          memoriaVecchiaPersa = false;
+          if (!scrivi()) return;
+          chiudiFoglio();
+          disegna();
+          // detto solo quando IndexedDB ha finito di scriverli (sono tanti: su WebKit ci vuole un attimo)
+          codaDati.then(() => mostraToast('Rimessi ' + movimenti_(vecchi.length)));
+        });
+        b.id = 'rimettiCopia';
+        riga.appendChild(b);
+        riga.appendChild(tasto('tasto-secondario', 'No', () => chiudiFoglio(true)));
+        corpo.appendChild(riga);
+      });
+    });
+  }
   // la memoria dei movimenti è vuota da sempre ma le copie ci sono: l'iPhone l'ha persa. Si offre l'ultima buona.
   function offriCopia() {
     if (!maiSalvata || stato.movimenti.length) return;
     elencoCopie().then(l => {
       const buona = l.find(c => c.movimenti > 0);
+      if (!buona && memoriaPersa && !stato.movimenti.length) mostraToast('I movimenti non ci sono più', null, null, 12000);
       if (!buona || stato.movimenti.length) return;
       apriFoglio('I movimenti non ci sono più', corpo => {
         corpo.appendChild(el('p', '', 'Ho una copia di ' + quandoCopia(buona).toLowerCase() + ', con ' + movimenti_(buona.movimenti) + '.'));
@@ -2952,7 +3654,7 @@
   // resta se si tiene Cripto, se no il saldo cripto perderebbe da dove sono arrivati i soldi.
   const TRANNE_CRIPTO = { conti: ['contanti', 'digitale'], tieniFissi: true };
   const daCancellare = scelta => m => !(scelta.tieniFissi && m.ricorrente) &&
-    (eSpostamento(m) ? [m.da, m.verso] : [contoDi(m)]).every(c => scelta.conti.includes(c));
+    (eSpostamento(m) ? [m.da, m.verso].filter(c => c !== PERSONE) : [contoDi(m)]).every(c => scelta.conti.includes(c));
   const movimenti_ = k => k + (k === 1 ? ' movimento' : ' movimenti');
   function ricomincia() {
     const n = stato.movimenti.length;
@@ -4290,7 +4992,7 @@
     disegna();
   }));
   // un'altra scheda che cambia i dati
-  window.addEventListener('storage', e => { if (e.key === CHIAVE) { stato = carica(); disegna(); } });
+  window.addEventListener('storage', e => { if (e.key === CHIAVE && e.newValue && !e.newValue.includes('"inIdb"') && !e.newValue.includes('"archivio":{')) { stato = daTesto(e.newValue); disegna(); } });
   // Il giorno che cambia (24/11/2026): se stava guardando il mese (o l'anno) di allora, si passa a quello di adesso. Prima,
   // riaprendola il 1° dicembre dal sottofondo, restava su novembre; e a mezzanotte, con l'app davanti, «oggi» restava ieri.
   let giornoVisto = isoOggi();
@@ -4353,6 +5055,8 @@
   rileggi();
   disegna();
   offriCopia();
+  if (memoriaVecchiaPersa) setTimeout(offriVecchi, 800);
+  if (soloLettura || memoriaIndietro) setTimeout(() => mostraToast(soloLettura ? 'Non riesco a leggere i movimenti: chiudi e riapri l\'app' : 'Gli ultimi movimenti non si sono salvati: guarda Menù → Copie automatiche', null, null, 12000), 800);
   copiaTraPoco();   // la prima del giorno anche se oggi non segna niente
   brillaTitolo();
   sigla();
@@ -4393,6 +5097,6 @@
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
     vista: () => vista, faseVoce: fase, scegliVistaConto, saldoVisibile: () => saldoVisibile,
     controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriMovimenti, apriSuoni, spazioUsato,
-    apriAutonomia, apriFeste, elencoCopie, salvaCopia, nuovoGiorno, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
+    apriAutonomia, apriFeste, elencoCopie, leggiDati, inIdb: () => inIdb, soloLettura: () => soloLettura, apriViaggi, viaggiDi, contiViaggio, apriPrestiti, persone, salvaCopia, nuovoGiorno, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
   };
 })();

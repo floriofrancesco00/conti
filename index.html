@@ -131,6 +131,8 @@
         <div class="tessera"><span class="t-etichetta">Uscite</span><span class="t-valore" id="totUscite"></span><span class="t-confronto" id="confUscite" hidden></span></div>
       </div>
       <p id="riepSpostamenti" class="riep-spostamenti" hidden></p>
+      <!-- 26/11/2026: mentre è in viaggio (disegnaRigaViaggio) -->
+      <button id="rigaViaggio" class="riga-viaggio" type="button" hidden></button>
     </div>
   </section>
 
@@ -157,6 +159,14 @@
     <h3 id="titoloEntrate">Entrate per categoria</h3>
     <ol id="barreEntrate" class="barre"></ol>
     <button id="barreEntrateAltre" class="barre-altre" type="button" hidden></button>
+  </section>
+
+  <!-- 26/11/2026: il calendario del mese (disegnaCalendario) -->
+  <section id="sezCalendario" class="carta sezione" aria-labelledby="titoloCalendario">
+    <h3 id="titoloCalendario">Giorno per giorno</h3>
+    <div class="cal-testa" aria-hidden="true"><span>L</span><span>M</span><span>M</span><span>G</span><span>V</span><span>S</span><span>D</span></div>
+    <div id="calendario" class="calendario" role="group" aria-label="Le uscite giorno per giorno: tocca un giorno per i suoi movimenti"></div>
+    <p id="calNota" class="grafico-nota"></p>
   </section>
 
   <section id="sezMesi" class="carta sezione" aria-labelledby="titoloMesi" hidden>
