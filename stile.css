@@ -230,7 +230,6 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
 .t-etichetta { font-size: 13px; color: var(--testo-2); display: flex; align-items: center; gap: 6px; }
 .tessere .t-etichetta::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--critico); flex-shrink: 0; }
 .tessere .tessera:first-child .t-etichetta::before { background: var(--positivo); }
-.tessere.senza-punti .t-etichetta::before { display: none; }   /* il viaggio: speso e al giorno non sono entrate e uscite */
 .t-valore { font-size: clamp(14px, 4.6vw, 19px); letter-spacing: -0.01em; font-weight: 650; margin-top: 2px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .t-valore.entrata { color: var(--positivo); }
 
@@ -574,16 +573,6 @@ body.voce-attiva .scorciatoie { display: none; }
 .t-confronto .freccia { font-size: 10px; }
 .t-confronto.bene .freccia { color: var(--positivo); }
 .t-confronto.male .freccia { color: var(--critico); }
-
-/* la riga del viaggio in corso, nel riepilogo (26/11/2026) */
-.riga-viaggio {
-  display: flex; width: 100%; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px; border: 0; border-radius: 12px;
-  background: var(--riempi); color: var(--testo); font-size: 15px; text-align: left; font-variant-numeric: tabular-nums; min-height: 44px;
-}
-.riga-viaggio:active { transform: scale(0.98); }
-.rv-nome { flex: 1; min-width: 0; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rv-speso { color: var(--testo-2); white-space: nowrap; }
-.elenco-azioni .azione.scelta { box-shadow: inset 0 0 0 2px var(--accento); }
 
 /* il calendario del mese (26/11/2026): un riquadro per giorno, più pieno più ha speso */
 .cal-testa, .calendario { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }

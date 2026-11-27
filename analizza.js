@@ -94,9 +94,6 @@
   ];
   const CONTO_BASE = 'digitale';
   const SPOSTAMENTO = 'Spostamento';
-  // i prestiti (26/11/2026): uno spostamento fra un conto e le persone (PERSONE non è un conto: è chi deve o a chi si deve),
-  // con chi. «prestati 50 a Marco» va da un conto alle persone; «Marco mi ha ridato 30» dalle persone a un conto.
-  const PERSONE = 'persone';
   // [parola, conto, opzioni]. g = generica, cioè il modo di pagare: non resta nella descrizione («pizza 12 in contanti»
   // → «Pizza») e non decide la categoria («spesa 30 col bancomat» è Spesa). l = un posto, non un conto («al bancomat»
   // non dice da dove a dove). p = vale solo dopo una preposizione («con la carta», «sul conto»; non «carta igienica»,
@@ -738,22 +735,6 @@
     const entraDavvero = trova(spaziato, ENTRA_VERI) || trova(spaziato, RENDITA);
     const prodotto = trova(spaziato, PRODOTTI_INVESTIMENTO);
     const generico = { da: opz.conto || CONTO_BASE, verso: (opz.conto || CONTO_BASE) === CONTO_BASE ? 'contanti' : CONTO_BASE };
-    // i prestiti (26/11/2026): prima di tutto il resto, se la frase dice a chi
-    const prestito = !opz.tipo || opz.tipo === 'spostamento' ? leggiPrestito(tok, menz, opz) : null;
-    if (prestito) {
-      const reali = menz.filter(m => !m.luogo);
-      const conto = reali.length ? reali[0].conto : opz.conto || CONTO_BASE;
-      risultato.tipo = 'spostamento';
-      risultato.categoria = SPOSTAMENTO;
-      risultato.chi = prestito.chi;
-      risultato.da = prestito.aMe ? PERSONE : conto;
-      risultato.verso = prestito.aMe ? conto : PERSONE;
-      risultato.conto = risultato.da;
-      risultato.descrizione = (prestito.ridato ? 'Ridati ' : 'Prestito ') + (prestito.aMe ? 'da ' : 'a ') + prestito.chi;
-      risultato.contoDa = reali.length ? 'frase' : (opz.conto ? 'vista' : 'base');
-      Object.assign(risultato.certo, { tipo: true, categoria: true, conto: !!reali.length });
-      return risultato;
-    }
     let sposta = null, genere = 'sposta';
     if (opz.tipo === 'spostamento') {
       if (trova(spaziato, PRELIEVO)) genere = 'prelievo';
@@ -981,64 +962,6 @@
     return null;
   }
 
-  // ------------------------------------------------------------------ prestiti (26/11/2026)
-  // Solo con un nome di persona e una costruzione chiara, se no la frase si legge come prima («rata prestito 200» è una
-  // spesa, «ridato 5» non dice a chi):
-  //  - verso di lui: «(ho) prestato/ridato/restituito 50 a Marco», «prestito a Marco 50», «presto 20 a Luca»;
-  //  - verso di me: «Marco mi ha prestato/ridato 30», «mi ha ridato 30 Marco», «prestito da Marco 200», «ridati 30 da Marco».
-  // Quelli «ridati» verso di me solo se con quella persona c'è un prestito aperto (opz.persone: i nomi): «il negozio mi
-  // ha ridato 5» non è un prestito.
-  const PRESTA = new Set(['prestato', 'prestati', 'prestata', 'prestate', 'presto', 'prestito', 'prestiti', 'prestare', 'prestiamo', 'prestare']);
-  const RIDA = new Set(['ridato', 'ridati', 'ridata', 'ridate', 'restituito', 'restituiti', 'restituita', 'restituite', 'restituisco',
-    'reso', 'resi', 'rido', 'rida', 'ridà', 'ridare']);
-  const NON_NOMI = new Set([...VUOTE, ...VALUTA, ...PRESTA, ...RIDA, 'ho', 'ha', 'hanno', 'mi', 'me', 'ti', 'gli', 'le', 'ci', 'si', 'indietro',
-    'soldi', 'tutto', 'tutti', 'parte', 'resto', 'ancora', 'altri', 'altro', 'banca', 'finanziaria', 'mutuo', 'rata', 'rate', 'carta',
-    'conto', 'contanti', 'cash', 'digitale', 'cripto', 'bancomat', 'bonifico', 'satispay', 'paypal', 'revolut', 'aveva', 'avevo', 'cena',
-    'pranzo', 'oggi', 'ieri', 'domani', 'stamattina', 'stasera', 'sera', 'mattina']);
-  const maiuscole = s => s.split(' ').map(p => p ? p[0].toUpperCase() + p.slice(1) : p).join(' ');
-  function leggiPrestito(tok, menz, opz) {
-    const n = tok.map(t => t.norm);
-    const iv = n.findIndex(x => PRESTA.has(x) || RIDA.has(x));
-    if (iv < 0) return null;
-    const ridato = RIDA.has(n[iv]);
-    const delConto = new Set();
-    for (const m of menz) for (let k = (m.prep >= 0 ? m.prep : m.i); k < m.i + m.n; k++) delConto.add(k);
-    const nome = i => i >= 0 && i < tok.length && !tok[i].usato && !delConto.has(i) && tok[i].num === undefined && !/\d/.test(tok[i].norm)
-      && !NON_NOMI.has(n[i]) && /^[a-zà-ü']+$/i.test(n[i]) && n[i].length >= 2;
-    const corsa = i => { const l = []; while (nome(i) && l.length < 3) l.push(i++); return l; };
-    let chi = null, aMe = null;
-    // «… a Marco» / «… da Marco» dopo il verbo
-    for (let i = iv + 1; i < tok.length && !chi; i++) {
-      const p = n[i];
-      const art = i + 1 < tok.length && ARTICOLI.has(n[i + 1]) ? 1 : 0;
-      if (['a', 'ad', 'al', 'alla', 'allo', 'all\''].includes(p) || PREP_DA.has(p)) {
-        const l = corsa(i + 1 + art);
-        if (l.length) { chi = l; aMe = PREP_DA.has(p); }
-      }
-    }
-    // «Marco mi ha ridato 30», «mi ha prestato 50 Marco», «Marco ha ridato 30»
-    const miHa = (n[iv - 1] === 'ha' || n[iv - 1] === 'hanno') ? iv - 1 : -1;
-    if (!chi && miHa >= 0) {
-      const conMi = n[miHa - 1] === 'mi';
-      const prima = conMi ? miHa - 1 : miHa;
-      let k = prima - 1;
-      const l = [];
-      while (k >= 0 && nome(k) && l.length < 3) l.unshift(k--);
-      const dopo = l.length ? l : (conMi ? (() => { for (let i = iv + 1; i < tok.length; i++) { const x = corsa(i); if (x.length) return x; } return []; })() : []);
-      if (dopo.length) { chi = dopo; aMe = true; }
-    }
-    if (!chi) return null;
-    const testo = maiuscole(chi.map(i => tok[i].orig.replace(/[.,]+$/, '')).join(' '));
-    if (aMe && ridato) {
-      const aperti = (opz.persone || []).map(normalizza);
-      if (!aperti.includes(normalizza(testo))) return null;
-    }
-    // la parola «ho» davanti dice che l'ha fatto lui: «ho ridato 30 da Marco» non ha senso, si legge verso di lui
-    if (aMe && n[iv - 1] === 'ho') aMe = false;
-    for (const i of chi) tok[i].usato = true;
-    return { chi: testo, aMe, ridato };
-  }
-
   // Come analizza, ma restituisce un elenco: uno per movimento. Chi non ha una data sua prende
   // la prima data detta nella frase («ieri pizza 12, benzina 50»: tutte e due ieri).
   function analizzaFrasi(testo, opz) {
@@ -1056,5 +979,5 @@
   }
 
   globale.Analizza = { analizza, analizzaFrasi, dividi, CATEGORIE, RIPIEGO, RINOMINATE, ICONE_CAMBIATE, INVESTIMENTI, RITIRATO,
-    CONTI, CONTO_BASE, SPOSTAMENTO, PERSONE, elenco, ripiego, perBase, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
+    CONTI, CONTO_BASE, SPOSTAMENTO, elenco, ripiego, perBase, paroleSignificative, icona, isoDa, normalizza, numeroDaParola };
 })(typeof window !== 'undefined' ? window : globalThis);
