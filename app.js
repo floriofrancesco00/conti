@@ -2,7 +2,7 @@
 (async function () {
   'use strict';
 
-  const VERSIONE = '2026.11.27-1100';
+  const VERSIONE = '2026.11.27-1433';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -243,6 +243,13 @@
     }
     return (pesoStato + pesoAltro + CHIAVE.length) / SPAZIO_CARATTERI;
   }
+  // la copia su GitHub (vedi «copia su GitHub»): il suo stato sta qui perché scrivi() lo usa
+  const CHIAVE_GH = CHIAVE + '.github';
+  const GH_REPO = ED.repoDati || 'conti-dati', GH_FILE = 'conti.txt', GH_API = 'https://api.github.com';
+  let gh = {};
+  try { gh = JSON.parse(localStorage.getItem(CHIAVE_GH) || '{}') || {}; } catch (e) { gh = {}; }
+  const scriviGh = () => { try { localStorage.setItem(CHIAVE_GH, JSON.stringify(gh)); } catch (e) { /* niente */ } };
+  let timerGh = null, ghInCorso = null;
   function scrivi() {
     try {
       if (soloLettura) throw new Error('i movimenti non si sono letti: non si scrive sopra');
@@ -282,6 +289,7 @@
         dati.catch(() => { mostraToast('Non riesco a salvare: spazio del telefono pieno?', null, null, 8000); });
       }
       copiaTraPoco();
+      githubTraPoco();
     } catch (e) {
       nonSalvato = 0;
       mostraToast('Non riesco a salvare: spazio del telefono pieno?', null, null, 8000);
@@ -476,7 +484,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'versione definitiva: tolti viaggi e prestiti, calendario più pulito';
+  const NOVITA = 'copia automatica su GitHub, calendario più pulito, tolti viaggi e prestiti';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -2899,6 +2907,11 @@
       bCop.appendChild(el('small', '', 'Torna a un giorno prima.'));
       azioni.appendChild(bCop);
 
+      const bGh = tasto('azione', '☁️ Copia su GitHub', apriGithub);
+      bGh.id = 'voceGithub';
+      bGh.appendChild(el('small', '', statoGh()));
+      azioni.appendChild(bGh);
+
       const bImp = tasto('azione', '📥 Importa da testo', () => apriImporta());
       bImp.appendChild(el('small', '', 'Da una copia esportata.'));
       azioni.appendChild(bImp);
@@ -2917,7 +2930,7 @@
       bZero.appendChild(el('small', '', 'Cancella i movimenti.'));
       azioni.appendChild(bZero);
 
-      corpo.appendChild(el('p', 'nota', 'I dati sono solo su questo telefono: esporta ogni tanto.'));
+      corpo.appendChild(el('p', 'nota', gh.token ? 'I dati sono su questo telefono e nella copia su GitHub.' : 'I dati sono solo su questo telefono: esporta ogni tanto.'));
       const crediti = tasto('tasto-secondario', 'Crediti di foto e suoni', apriCrediti);
       crediti.style.marginTop = '12px';
       corpo.appendChild(crediti);
@@ -3123,6 +3136,159 @@
     return 'Esportati ' + (giorni === 0 ? 'oggi' : giorni === 1 ? 'ieri' : giorni + ' giorni fa') + '.';
   }
 
+  // ================================================================ copia su GitHub (27/11/2026, sua scelta)
+  // «Voglio che ti salvi tutto quanto su GitHub, così che se dovessi perdere il cellulare comunque sia salvato»; scelta sua:
+  // «da soli, senza password». Un minuto dopo ogni modifica, uscendo dall'app e a ogni apertura, la copia completa (la
+  // stessa di «Copia per l'AI», che «Importa da testo» rimette su un telefono nuovo) va nel file conti.txt del repository
+  // privato GH_REPO del suo account. La chiave GitHub vale solo per quel repository e sta solo su questo telefono
+  // (CHIAVE_GH: mai nelle copie, nelle esportazioni o nel codice). Senza rete ci riprova al ritorno della rete o all'apertura.
+  // Su un telefono nuovo, ancora vuoto, collegandosi non scrive sopra la copia che c'è: prima si rimette (gh.sospesa).
+  // (lo stato, gh, sta più su, prima di scrivi(): un salvataggio all'apertura lo usa già)
+  const ghPercorso = () => '/repos/' + gh.utente + '/' + GH_REPO + '/contents/' + GH_FILE;
+  function githubTraPoco(ms) {
+    if (!gh.token) return;
+    clearTimeout(timerGh);
+    timerGh = setTimeout(() => { timerGh = null; copiaSuGithub(); }, ms === undefined ? 60000 : ms);
+  }
+  async function chiamaGh(metodo, percorso, corpo, grezzo) {
+    const intestazioni = { Authorization: 'Bearer ' + gh.token, Accept: grezzo ? 'application/vnd.github.raw+json' : 'application/vnd.github+json' };
+    if (corpo) intestazioni['Content-Type'] = 'application/json';
+    const r = await fetch(GH_API + percorso, { method: metodo, headers: intestazioni, body: corpo ? JSON.stringify(corpo) : undefined, cache: 'no-store' });
+    let dati = null;
+    try { dati = grezzo ? await r.text() : await r.json(); } catch (e) { dati = null; }
+    return { stato: r.status, dati };
+  }
+  function base64(testo) {
+    const b = new TextEncoder().encode(testo);
+    let s = '';
+    for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  // senza la prima riga, che ha l'ora dell'esportazione: se non è cambiato niente non si ricarica
+  const improntaGh = testo => { const t = testo.slice(testo.indexOf('\n') + 1); return t.length + ':' + hash(t); };
+  const errorGh = s => (s === 401 ? 'chiave' : s === 403 || s === 404 ? 'permessi' : 'rete');
+  function copiaSuGithub(forza) {
+    if (!gh.token || !gh.utente || (gh.sospesa && !forza)) return Promise.resolve(false);
+    if (ghInCorso) return ghInCorso;
+    ghInCorso = (async () => {
+      const testo = testoEsportazione();
+      const impronta = improntaGh(testo);
+      if (!forza && impronta === gh.impronta && !gh.errore) return true;
+      const metti = sha => chiamaGh('PUT', ghPercorso(), Object.assign({ message: 'Copia del ' + new Date().toLocaleString('it-IT') + ' · ' + movimenti_(stato.movimenti.length),
+        content: base64(testo) }, sha ? { sha } : {}));
+      let r = await metti(gh.sha);
+      if (r.stato === 409 || r.stato === 422) {   // la copia su GitHub è cambiata altrove (un altro telefono): si prende la sua
+        const g = await chiamaGh('GET', ghPercorso());
+        r = await metti(g.stato === 200 && g.dati ? g.dati.sha : undefined);
+      }
+      if ((r.stato === 200 || r.stato === 201) && r.dati && r.dati.content) {
+        Object.assign(gh, { sha: r.dati.content.sha, impronta, ultima: Date.now(), errore: null, sospesa: false });
+        scriviGh();
+        return true;
+      }
+      gh.errore = errorGh(r.stato);
+      scriviGh();
+      return false;
+    })().catch(() => { gh.errore = 'rete'; scriviGh(); return false; })
+      .then(v => { ghInCorso = null; if (!$('bannerBackup').hidden || gh.errore) disegnaBanner(); return v; });
+    return ghInCorso;
+  }
+  // il proprietario è quello del sito (floriofrancesco00.github.io): niente nomi nel codice
+  const utenteGh = () => (/\.github\.io$/.test(location.hostname) ? location.hostname.split('.')[0] : (ED.utenteDati || ''));
+  async function collegaGithub(token) {
+    gh = { token: token.trim(), utente: utenteGh() };
+    if (!gh.utente) { const u = await chiamaGh('GET', '/user').catch(() => ({})); gh.utente = u.dati && u.dati.login; }
+    const r = await chiamaGh('GET', ghPercorso()).catch(() => ({ stato: 0 }));
+    if (r.stato === 401 || !gh.utente) { gh = {}; return 'La chiave non va'; }
+    if (r.stato === 403 || (r.stato === 404 && !(await chiamaGh('GET', '/repos/' + gh.utente + '/' + GH_REPO).catch(() => ({}))).dati)) {
+      gh = {}; return 'La chiave non apre ' + GH_REPO;
+    }
+    if (r.stato === 0) { gh = {}; return 'Senza rete'; }
+    if (r.stato === 200 && r.dati) { gh.sha = r.dati.sha; if (!stato.movimenti.length) gh.sospesa = true; }
+    scriviGh();
+    return null;
+  }
+  async function rimettiDaGithub() {
+    const r = await chiamaGh('GET', ghPercorso(), null, true).catch(() => ({ stato: 0 }));
+    if (r.stato !== 200 || typeof r.dati !== 'string') { mostraToast(r.stato === 404 ? 'Su GitHub non c\'è ancora una copia' : 'Non riesco a leggere la copia su GitHub'); return false; }
+    salvaCopia('prima di rimettere da GitHub');
+    const esito = importaTesto(r.dati);
+    gh.sospesa = false;
+    gh.impronta = null;
+    scriviGh();
+    generaRicorrenti(true);
+    rileggi();
+    disegna();
+    mostraToast('Rimessi da GitHub: ' + movimenti_(esito.aggiunti));
+    githubTraPoco(2000);
+    return true;
+  }
+  function quandoGh(ms) {
+    const d = new Date(ms), p = n => String(n).padStart(2, '0');
+    return etichettaGiorno(A.isoDa(d)).toLowerCase() + ' alle ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  }
+  const ERRORI_GH = { chiave: 'la chiave non va più (scaduta?)', permessi: 'la chiave non apre ' + GH_REPO, rete: 'senza rete, riprovo' };
+  function statoGh() {
+    if (!gh.token) return 'Spenta';
+    if (gh.sospesa) return 'Prima rimetti la copia che c\'è';
+    if (gh.errore && gh.errore !== 'rete') return 'Non va: ' + ERRORI_GH[gh.errore];
+    return gh.ultima ? 'Ultima: ' + quandoGh(gh.ultima) + (gh.errore ? ' · ' + ERRORI_GH.rete : '') : 'In attesa';
+  }
+  // la copia su GitHub conta come copia fatta, se è di questi giorni e va
+  const ghFresca = () => !!(gh.token && gh.ultima && (!gh.errore || gh.errore === 'rete') && Date.now() - gh.ultima < 3 * GIORNO_MS);
+  function apriGithub() {
+    apriFoglio('Copia su GitHub', corpo => {
+      if (!gh.token) {
+        corpo.appendChild(el('p', 'nota-su', 'Tutto, a ogni modifica, nel tuo repository privato ' + GH_REPO + '.'));
+        const inp = inputTesto('');
+        inp.id = 'chiaveGithub';
+        inp.placeholder = 'github_pat_…';
+        for (const [k, v] of [['autocomplete', 'off'], ['autocorrect', 'off'], ['autocapitalize', 'off'], ['spellcheck', 'false']]) inp.setAttribute(k, v);
+        corpo.appendChild(campo('Chiave GitHub', inp));
+        const riga = el('div', 'riga-tasti');
+        const b = tasto('tasto-primario', 'Collega', async () => {
+          if (!inp.value.trim()) { inp.focus(); return; }
+          b.disabled = true;
+          const errore = await collegaGithub(inp.value);
+          b.disabled = false;
+          if (errore) { mostraToast(errore); return; }
+          if (!gh.sospesa) await copiaSuGithub(true);
+          apriGithub();
+        });
+        b.id = 'collegaGithub';
+        riga.appendChild(b);
+        corpo.appendChild(riga);
+        return;
+      }
+      const s = el('p', 'riassunto', statoGh());
+      s.id = 'statoGithub';
+      corpo.appendChild(s);
+      const riga = el('div', 'riga-tasti colonna');
+      const rimetti = tasto(gh.sospesa ? 'tasto-primario' : 'tasto-secondario', '📥 Rimetti da GitHub', () => {
+        conferma('Rimettere la copia di GitHub?', 'Si aggiungono i movimenti che qui non ci sono. Prima salvo una copia di adesso.', 'Rimetti', async () => {
+          if (await rimettiDaGithub()) apriGithub();
+        }, apriGithub);
+      });
+      rimetti.id = 'rimettiGithub';
+      const adesso = tasto(gh.sospesa ? 'tasto-secondario' : 'tasto-primario', '☁️ Copia adesso', async () => {
+        adesso.disabled = true;
+        const ok = await copiaSuGithub(true);
+        adesso.disabled = false;
+        mostraToast(ok ? 'Copiato su GitHub' : 'Non riesco: ' + (ERRORI_GH[gh.errore] || 'riprovo'));
+        apriGithub();
+      });
+      adesso.id = 'copiaGithub';
+      if (gh.sospesa) { riga.appendChild(rimetti); riga.appendChild(adesso); } else { riga.appendChild(adesso); riga.appendChild(rimetti); }
+      corpo.appendChild(riga);
+      const via = tasto('tasto-secondario pericolo', 'Scollega', () => {
+        conferma('Scollegare GitHub?', 'La copia che c\'è resta su GitHub.', 'Scollega', () => { gh = {}; scriviGh(); clearTimeout(timerGh); disegnaBanner(); apriGithub(); }, apriGithub);
+      });
+      via.id = 'scollegaGithub';
+      via.style.marginTop = '14px';
+      corpo.appendChild(via);
+    });
+  }
+
   // un'icona nuova è quella dove non c'è mai stato niente: ricominciando da zero (il 1° dicembre) è solo vuota (24/11/2026)
   const qualcosaDentro = () => !!(stato.movimenti.length || stato.ricorrenti.length || CONTI_ID.some(c => stato.saldi[c]));
   const iconaNuova = () => !pref.avviata && !qualcosaDentro();
@@ -3132,13 +3298,17 @@
     if (!pref.avviata && qualcosaDentro()) { pref.avviata = true; scriviPref(); }
     $('bannerTrasloco').hidden = !iconaNuova();
     const n = stato.movimenti.length;
-    const vecchio = !stato.ultimoBackup || (Date.now() - new Date(stato.ultimoBackup)) > 14 * GIORNO_MS;
+    const vecchio = !ghFresca() && (!stato.ultimoBackup || (Date.now() - new Date(stato.ultimoBackup)) > 14 * GIORNO_MS);
+    const ghRotta = !!(gh.token && (gh.sospesa || (gh.errore && gh.errore !== 'rete') || (gh.errore === 'rete' && gh.ultima && Date.now() - gh.ultima > 3 * GIORNO_MS)));
     // la memoria quasi piena viene prima di tutto: va detto a Claude, che sposta i movimenti in una memoria più grande
     const pieno = spazioUsato() >= 0.6;
-    const mostra = pieno || (n >= 10 && vecchio);
+    const mostra = pieno || ghRotta || (n >= 10 && vecchio);
     $('bannerBackup').hidden = !mostra;
+    bannerGh = !pieno && ghRotta;
+    $('bannerEsporta').textContent = bannerGh ? 'Apri' : 'Esporta';
     if (pieno) $('bannerTesto').textContent = 'La memoria dei movimenti è al ' + percento(spazioUsato(), 1) + ': esporta e ' +
       (ED.nome === 'principale' ? 'dillo a Claude, che li sposta' : 'chiedi a chi ti ha dato l\'app di spostarli') + ' in una memoria più grande prima che si riempia.';
+    else if (bannerGh) $('bannerTesto').textContent = 'Copia su GitHub: ' + statoGh().replace(/^Non va: /, '').replace(/^Ultima: /, 'ferma da ') + '.';
     else if (mostra) $('bannerTesto').textContent = 'Fai una copia dei movimenti. ' + testoUltimoBackup();
   }
 
@@ -4507,7 +4677,15 @@
   $('titoloMovimenti').addEventListener('click', () => apriMovimenti({ periodo: 'tutto', categoria: vista.filtro, conto: vista.conto }));
   $('sezAutonomia').addEventListener('click', e => { if (e.target.closest('button, a, input, select, label')) return; apriAutonomia(); });
   $('incollaTrasloco').addEventListener('click', incollaDallaVecchia);
-  $('bannerEsporta').addEventListener('click', () => apriEsporta('tutto'));
+  let bannerGh = false;
+  $('bannerEsporta').addEventListener('click', () => (bannerGh ? apriGithub() : apriEsporta('tutto')));
+  // la copia su GitHub: all'apertura, uscendo (subito, se ce n'era una in attesa), al ritorno della rete
+  githubTraPoco(5000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { if (timerGh) { clearTimeout(timerGh); timerGh = null; copiaSuGithub(); } }
+    else githubTraPoco(4000);
+  });
+  window.addEventListener('online', () => githubTraPoco(1500));
   $('modSaldo').addEventListener('click', () => apriSaldo(vista.conto || undefined));
   $('velo').addEventListener('click', chiudiFoglio);
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && foglioAperto()) chiudiFoglio(true); });
@@ -4644,6 +4822,6 @@
     materializza, migra, apriEsporta, apriTrasloco, statoVoce: () => statoVoce, versionePronta: () => versionePronta,
     vista: () => vista, faseVoce: fase, scegliVistaConto, saldoVisibile: () => saldoVisibile,
     controllaVersione, novita: NOVITA, soliteSpese, cerca, confronto, apriCerca, apriMovimenti, apriSuoni, spazioUsato,
-    apriAutonomia, apriFeste, elencoCopie, leggiDati, inIdb: () => inIdb, soloLettura: () => soloLettura, salvaCopia, nuovoGiorno, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
+    apriAutonomia, apriFeste, elencoCopie, leggiDati, inIdb: () => inIdb, soloLettura: () => soloLettura, gh: () => gh, copiaSuGithub, apriGithub, salvaCopia, nuovoGiorno, festaDiOggi, santoDi: () => santoDi(oggi()), anteprimaFesta
   };
 })();
