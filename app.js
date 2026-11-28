@@ -2,7 +2,7 @@
 (async function () {
   'use strict';
 
-  const VERSIONE = '2026.11.28-1334';
+  const VERSIONE = '2026.11.28-1617';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -484,7 +484,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'collegare GitHub più semplice: chiave già compilata ed errori spiegati';
+  const NOVITA = 'copia su GitHub più sicura';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -3029,6 +3029,7 @@
       return true;
     };
     if (!metti(copia.testo)) return;
+    memoriaPersa = memoriaIndietro = false;   // rimessi: la copia su GitHub riparte
     chiudiFoglio();
     mostraToast('Tornato a ' + quandoCopia(copia).toLowerCase() + ': ' + movimenti_(stato.movimenti.length), 'Annulla', () => { metti(prima); }, 12000);
     return fatto;
@@ -3064,7 +3065,7 @@
   function offriVecchi() {
     elencoCopie().then(l => {
       const buona = l.find(c => c.movimenti > stato.movimenti.length);
-      if (!buona) { mostraToast('I movimenti più vecchi non ci sono più', null, null, 12000); return; }
+      if (!buona) { if (gh.token) apriGithub(); else mostraToast('I movimenti più vecchi non ci sono più', null, null, 12000); return; }
       apriFoglio('I movimenti più vecchi non ci sono più', corpo => {
         corpo.appendChild(el('p', '', 'Ho una copia di ' + quandoCopia(buona).toLowerCase() + ', con ' + movimenti_(buona.movimenti) + '.'));
         const riga = el('div', 'riga-tasti colonna');
@@ -3094,7 +3095,7 @@
     if (!maiSalvata || stato.movimenti.length) return;
     elencoCopie().then(l => {
       const buona = l.find(c => c.movimenti > 0);
-      if (!buona && memoriaPersa && !stato.movimenti.length) mostraToast('I movimenti non ci sono più', null, null, 12000);
+      if (!buona && memoriaPersa && !stato.movimenti.length) { if (gh.token) apriGithub(); else mostraToast('I movimenti non ci sono più', null, null, 12000); }
       if (!buona || stato.movimenti.length) return;
       apriFoglio('I movimenti non ci sono più', corpo => {
         corpo.appendChild(el('p', '', 'Ho una copia di ' + quandoCopia(buona).toLowerCase() + ', con ' + movimenti_(buona.movimenti) + '.'));
@@ -3168,8 +3169,12 @@
   const improntaGh = testo => { const t = testo.slice(testo.indexOf('\n') + 1); return t.length + ':' + hash(t); };
   // 401: la chiave non va (scaduta, cancellata, copiata male); 404: non vede il repository; 403 scrivendo: può solo leggere
   const errorGh = r => (r.finite ? 'rete' : r.stato === 401 ? 'chiave' : r.stato === 404 ? 'permessi' : r.stato === 403 ? 'scrittura' : 'rete');
+  // In pausa quando i movimenti non si sono letti tutti (28/11/2026, trovato rileggendo): IndexedDB cancellato dal telefono,
+  // o indietro. Copiare allora coprirebbe su GitHub la copia buona con una incompleta, proprio quando serve. Si riparte
+  // rimettendo i movimenti (da GitHub o da una copia del telefono); «Copia adesso» la forza, tranne in sola lettura.
+  const ghInPausa = () => !!(soloLettura || memoriaPersa || memoriaVecchiaPersa || memoriaIndietro);
   function copiaSuGithub(forza) {
-    if (!gh.token || !gh.utente || (gh.sospesa && !forza)) return Promise.resolve(false);
+    if (!gh.token || !gh.utente || soloLettura || ((gh.sospesa || ghInPausa()) && !forza)) return Promise.resolve(false);
     if (ghInCorso) return ghInCorso;
     ghInCorso = (async () => {
       const testo = testoEsportazione();
@@ -3218,6 +3223,7 @@
     if (r.stato !== 200 || typeof r.dati !== 'string') { mostraToast(r.stato === 404 ? 'Su GitHub non c\'è ancora una copia' : 'Non riesco a leggere la copia su GitHub'); return false; }
     salvaCopia('prima di rimettere da GitHub');
     const esito = importaTesto(r.dati);
+    memoriaPersa = memoriaVecchiaPersa = memoriaIndietro = false;
     gh.sospesa = false;
     gh.impronta = null;
     scriviGh();
@@ -3244,6 +3250,7 @@
   function statoGh() {
     if (!gh.token) return 'Spenta';
     if (gh.sospesa) return 'Prima rimetti la copia che c\'è';
+    if (ghInPausa()) return 'In pausa: mancano dei movimenti, rimettili';
     if (gh.errore && gh.errore !== 'rete') return 'Non va: ' + ERRORI_GH[gh.errore];
     return gh.ultima ? 'Ultima: ' + quandoGh(gh.ultima) + (gh.errore ? ' · ' + ERRORI_GH.rete : '') : 'In attesa';
   }
@@ -3296,13 +3303,14 @@
         if (!gh.token) return;
       }
       const riga = el('div', 'riga-tasti colonna');
-      const rimetti = tasto(gh.sospesa ? 'tasto-primario' : 'tasto-secondario', '📥 Rimetti da GitHub', () => {
+      const prima = gh.sospesa || ghInPausa();
+      const rimetti = tasto(prima ? 'tasto-primario' : 'tasto-secondario', '📥 Rimetti da GitHub', () => {
         conferma('Rimettere la copia di GitHub?', 'Si aggiungono i movimenti che qui non ci sono. Prima salvo una copia di adesso.', 'Rimetti', async () => {
           if (await rimettiDaGithub()) apriGithub();
         }, apriGithub);
       });
       rimetti.id = 'rimettiGithub';
-      const adesso = tasto(gh.sospesa || rotta ? 'tasto-secondario' : 'tasto-primario', '☁️ Copia adesso', async () => {
+      const adesso = tasto(prima || rotta ? 'tasto-secondario' : 'tasto-primario', '☁️ Copia adesso', async () => {
         adesso.disabled = true;
         const ok = await copiaSuGithub(true);
         adesso.disabled = false;
@@ -3312,7 +3320,7 @@
         if (!ok && gh.errore === 'rete') mostraToast('Senza rete: riprovo da sola');
       });
       adesso.id = 'copiaGithub';
-      if (gh.sospesa) { riga.appendChild(rimetti); riga.appendChild(adesso); } else { riga.appendChild(adesso); riga.appendChild(rimetti); }
+      if (prima) { riga.appendChild(rimetti); riga.appendChild(adesso); } else { riga.appendChild(adesso); riga.appendChild(rimetti); }
       corpo.appendChild(riga);
       const via = tasto('tasto-secondario pericolo', 'Scollega', () => {
         conferma('Scollegare GitHub?', 'La copia che c\'è resta su GitHub.', 'Scollega', () => { gh = {}; scriviGh(); clearTimeout(timerGh); disegnaBanner(); apriGithub(); }, apriGithub);
@@ -3332,7 +3340,7 @@
     $('bannerTrasloco').hidden = !iconaNuova();
     const n = stato.movimenti.length;
     const vecchio = !ghFresca() && (!stato.ultimoBackup || (Date.now() - new Date(stato.ultimoBackup)) > 14 * GIORNO_MS);
-    const ghRotta = !!(gh.token && (gh.sospesa || (gh.errore && gh.errore !== 'rete') || (gh.errore === 'rete' && (!gh.ultima || Date.now() - gh.ultima > 3 * GIORNO_MS))));
+    const ghRotta = !!(gh.token && (gh.sospesa || ghInPausa() || (gh.errore && gh.errore !== 'rete') || (gh.errore === 'rete' && (!gh.ultima || Date.now() - gh.ultima > 3 * GIORNO_MS))));
     // la memoria quasi piena viene prima di tutto: va detto a Claude, che sposta i movimenti in una memoria più grande
     const pieno = spazioUsato() >= 0.6;
     const mostra = pieno || ghRotta || (n >= 10 && vecchio);
