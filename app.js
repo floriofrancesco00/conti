@@ -2,7 +2,7 @@
 (async function () {
   'use strict';
 
-  const VERSIONE = '2026.11.27-1433';
+  const VERSIONE = '2026.11.28-1334';
   const ED = Object.assign({ nome: 'principale', titolo: 'Conti', chiave: 'conti.v1', chiavePref: 'conti.preferenze',
     inizioSulSerio: null, testoCopia: 'È la tua copia di sicurezza.', avvisoCopiato: 'Copiato' }, window.EDIZIONE || {});
   const CHIAVE = ED.chiave;
@@ -484,7 +484,7 @@
   // 3. Ricaricata, un avviso dice che si è aggiornata e cosa c'è di nuovo (NOVITA la scrive pubblica.py --novita).
   // Safari risponde a reg.update() solo a installazione finita (provato su WebKit il 10/11/2026): la versione del
   // service worker gliela si chiede con un messaggio.
-  const NOVITA = 'copia automatica su GitHub, calendario più pulito, tolti viaggi e prestiti';
+  const NOVITA = 'collegare GitHub più semplice: chiave già compilata ed errori spiegati';
   const CHIAVE_AGG = CHIAVE + '.aggiornamento';
   let versionePronta = false, timerPronta = null, controlloInCorso = null, ancoraUnaVolta = false, ultimoTocco = 0, ultimoControllo = null;
   ['pointerdown', 'keydown', 'input'].forEach(n => document.addEventListener(n, () => { ultimoTocco = Date.now(); }, true));
@@ -3156,7 +3156,7 @@
     const r = await fetch(GH_API + percorso, { method: metodo, headers: intestazioni, body: corpo ? JSON.stringify(corpo) : undefined, cache: 'no-store' });
     let dati = null;
     try { dati = grezzo ? await r.text() : await r.json(); } catch (e) { dati = null; }
-    return { stato: r.status, dati };
+    return { stato: r.status, dati, finite: r.headers.get('x-ratelimit-remaining') === '0' };
   }
   function base64(testo) {
     const b = new TextEncoder().encode(testo);
@@ -3166,7 +3166,8 @@
   }
   // senza la prima riga, che ha l'ora dell'esportazione: se non è cambiato niente non si ricarica
   const improntaGh = testo => { const t = testo.slice(testo.indexOf('\n') + 1); return t.length + ':' + hash(t); };
-  const errorGh = s => (s === 401 ? 'chiave' : s === 403 || s === 404 ? 'permessi' : 'rete');
+  // 401: la chiave non va (scaduta, cancellata, copiata male); 404: non vede il repository; 403 scrivendo: può solo leggere
+  const errorGh = r => (r.finite ? 'rete' : r.stato === 401 ? 'chiave' : r.stato === 404 ? 'permessi' : r.stato === 403 ? 'scrittura' : 'rete');
   function copiaSuGithub(forza) {
     if (!gh.token || !gh.utente || (gh.sospesa && !forza)) return Promise.resolve(false);
     if (ghInCorso) return ghInCorso;
@@ -3186,7 +3187,7 @@
         scriviGh();
         return true;
       }
-      gh.errore = errorGh(r.stato);
+      gh.errore = errorGh(r);
       scriviGh();
       return false;
     })().catch(() => { gh.errore = 'rete'; scriviGh(); return false; })
@@ -3195,16 +3196,20 @@
   }
   // il proprietario è quello del sito (floriofrancesco00.github.io): niente nomi nel codice
   const utenteGh = () => (/\.github\.io$/.test(location.hostname) ? location.hostname.split('.')[0] : (ED.utenteDati || ''));
-  async function collegaGithub(token) {
-    gh = { token: token.trim(), utente: utenteGh() };
-    if (!gh.utente) { const u = await chiamaGh('GET', '/user').catch(() => ({})); gh.utente = u.dati && u.dati.login; }
-    const r = await chiamaGh('GET', ghPercorso()).catch(() => ({ stato: 0 }));
-    if (r.stato === 401 || !gh.utente) { gh = {}; return 'La chiave non va'; }
-    if (r.stato === 403 || (r.stato === 404 && !(await chiamaGh('GET', '/repos/' + gh.utente + '/' + GH_REPO).catch(() => ({}))).dati)) {
-      gh = {}; return 'La chiave non apre ' + GH_REPO;
-    }
-    if (r.stato === 0) { gh = {}; return 'Senza rete'; }
-    if (r.stato === 200 && r.dati) { gh.sha = r.dati.sha; if (!stato.movimenti.length) gh.sospesa = true; }
+  // copiando dal telefono si attaccano spazi, a capo, caratteri invisibili, virgolette, «Bearer»
+  const pulisciChiave = s => String(s || '').replace(/^\s*(bearer|token)\s+/i, '').replace(/[\s\u200b-\u200d\u2060\ufeff"'«»“”‘’`]/g, '');
+  async function collegaGithub(chiave) {
+    const token = pulisciChiave(chiave);
+    if (!/^(github_pat_|ghp_|gho_)[A-Za-z0-9_]{20,}$/.test(token)) return 'formato';
+    gh = { token, utente: utenteGh() };
+    try {
+      if (!gh.utente) { const u = await chiamaGh('GET', '/user'); gh.utente = u.dati && u.dati.login; if (u.stato === 401) { gh = {}; return 'chiave'; } }
+      const r = await chiamaGh('GET', '/repos/' + gh.utente + '/' + GH_REPO);
+      if (r.stato !== 200) { const e = errorGh(r); gh = {}; return e; }
+      const f = await chiamaGh('GET', ghPercorso());
+      if (f.stato === 200 && f.dati) { gh.sha = f.dati.sha; if (!stato.movimenti.length) gh.sospesa = true; }
+      else if (f.stato !== 404) { const e = errorGh(f); gh = {}; return e; }
+    } catch (e) { gh = {}; return 'rete'; }
     scriviGh();
     return null;
   }
@@ -3227,7 +3232,15 @@
     const d = new Date(ms), p = n => String(n).padStart(2, '0');
     return etichettaGiorno(A.isoDa(d)).toLowerCase() + ' alle ' + p(d.getHours()) + ':' + p(d.getMinutes());
   }
-  const ERRORI_GH = { chiave: 'la chiave non va più (scaduta?)', permessi: 'la chiave non apre ' + GH_REPO, rete: 'senza rete, riprovo' };
+  const ERRORI_GH = { chiave: 'la chiave non va (scaduta, cancellata o copiata male)', permessi: 'la chiave non vede ' + GH_REPO,
+    scrittura: 'la chiave può solo leggere', rete: 'senza rete, riprovo', formato: 'non sembra una chiave GitHub' };
+  // cosa fare, in una riga
+  const RIMEDI_GH = { chiave: 'Creane una nuova e incollala qui.', permessi: 'Su GitHub, nella chiave: Edit → Only select repositories → ' + GH_REPO + '.',
+    scrittura: 'Su GitHub, nella chiave: Edit → Contents → Read and write.', rete: 'Riprova quando c\'è rete.', formato: 'Comincia con github_pat_: ricopiala intera.' };
+  // la pagina di GitHub già compilata: nome, senza scadenza, contenuti in scrittura. Il repository lo sceglie lui (GitHub non lo
+  // lascia scegliere dall'indirizzo)
+  const CREA_CHIAVE = 'https://github.com/settings/personal-access-tokens/new?name=' + encodeURIComponent(ED.titolo || 'Conti') +
+    '&description=' + encodeURIComponent('Copia dei movimenti in ' + GH_REPO) + '&expires_in=none&contents=write';
   function statoGh() {
     if (!gh.token) return 'Spenta';
     if (gh.sospesa) return 'Prima rimetti la copia che c\'è';
@@ -3236,11 +3249,30 @@
   }
   // la copia su GitHub conta come copia fatta, se è di questi giorni e va
   const ghFresca = () => !!(gh.token && gh.ultima && (!gh.errore || gh.errore === 'rete') && Date.now() - gh.ultima < 3 * GIORNO_MS);
-  function apriGithub() {
+  function apriGithub(esito) {
     apriFoglio('Copia su GitHub', corpo => {
-      if (!gh.token) {
-        corpo.appendChild(el('p', 'nota-su', 'Tutto, a ogni modifica, nel tuo repository privato ' + GH_REPO + '.'));
-        const inp = inputTesto('');
+      const rotta = gh.token && ['chiave', 'permessi', 'scrittura'].includes(gh.errore);
+      const errore = (esito && esito.errore) || (rotta ? gh.errore : null);
+      if (gh.token) {
+        const s = el('p', 'riassunto', statoGh());
+        s.id = 'statoGithub';
+        corpo.appendChild(s);
+      } else corpo.appendChild(el('p', 'nota-su', 'Tutto, a ogni modifica, nel tuo repository privato ' + GH_REPO + '.'));
+      if (errore) {
+        const e = el('p', 'avviso', maiuscola(ERRORI_GH[errore]) + '. ' + RIMEDI_GH[errore]);
+        e.id = 'erroreGithub';
+        corpo.appendChild(e);
+      }
+      // senza chiave, o con una che non va: si incolla (e si crea) da qui
+      if (!gh.token || rotta) {
+        const crea = el('a', 'tasto-secondario tasto-link', '🔑 Crea la chiave su GitHub');
+        crea.id = 'creaChiave';
+        crea.href = CREA_CHIAVE;
+        crea.target = '_blank';
+        crea.rel = 'noopener';
+        corpo.appendChild(crea);
+        corpo.appendChild(el('p', 'nota', 'Lì scegli «Only select repositories» → ' + GH_REPO + ', poi «Generate token».'));
+        const inp = inputTesto(esito && esito.chiave || '');
         inp.id = 'chiaveGithub';
         inp.placeholder = 'github_pat_…';
         for (const [k, v] of [['autocomplete', 'off'], ['autocorrect', 'off'], ['autocapitalize', 'off'], ['spellcheck', 'false']]) inp.setAttribute(k, v);
@@ -3249,20 +3281,20 @@
         const b = tasto('tasto-primario', 'Collega', async () => {
           if (!inp.value.trim()) { inp.focus(); return; }
           b.disabled = true;
-          const errore = await collegaGithub(inp.value);
-          b.disabled = false;
-          if (errore) { mostraToast(errore); return; }
-          if (!gh.sospesa) await copiaSuGithub(true);
-          apriGithub();
+          b.textContent = 'Controllo…';
+          const vecchio = gh;
+          let e = await collegaGithub(inp.value);
+          if (!e && !gh.sospesa) { await copiaSuGithub(true); if (gh.errore && gh.errore !== 'rete') e = gh.errore; }
+          if (e && e !== 'scrittura' && vecchio.token && !gh.token) { gh = vecchio; scriviGh(); }   // la vecchia resta finché la nuova non va
+          disegnaBanner();
+          apriGithub(e ? { errore: e, chiave: inp.value } : null);
+          if (!e) mostraToast(gh.sospesa ? 'Collegata: prima rimetti la copia che c\'è' : 'Collegata: copia fatta');
         });
         b.id = 'collegaGithub';
         riga.appendChild(b);
         corpo.appendChild(riga);
-        return;
+        if (!gh.token) return;
       }
-      const s = el('p', 'riassunto', statoGh());
-      s.id = 'statoGithub';
-      corpo.appendChild(s);
       const riga = el('div', 'riga-tasti colonna');
       const rimetti = tasto(gh.sospesa ? 'tasto-primario' : 'tasto-secondario', '📥 Rimetti da GitHub', () => {
         conferma('Rimettere la copia di GitHub?', 'Si aggiungono i movimenti che qui non ci sono. Prima salvo una copia di adesso.', 'Rimetti', async () => {
@@ -3270,12 +3302,14 @@
         }, apriGithub);
       });
       rimetti.id = 'rimettiGithub';
-      const adesso = tasto(gh.sospesa ? 'tasto-secondario' : 'tasto-primario', '☁️ Copia adesso', async () => {
+      const adesso = tasto(gh.sospesa || rotta ? 'tasto-secondario' : 'tasto-primario', '☁️ Copia adesso', async () => {
         adesso.disabled = true;
         const ok = await copiaSuGithub(true);
         adesso.disabled = false;
-        mostraToast(ok ? 'Copiato su GitHub' : 'Non riesco: ' + (ERRORI_GH[gh.errore] || 'riprovo'));
-        apriGithub();
+        disegnaBanner();
+        if (ok) mostraToast('Copiato su GitHub');
+        apriGithub(ok || gh.errore === 'rete' ? null : { errore: gh.errore });
+        if (!ok && gh.errore === 'rete') mostraToast('Senza rete: riprovo da sola');
       });
       adesso.id = 'copiaGithub';
       if (gh.sospesa) { riga.appendChild(rimetti); riga.appendChild(adesso); } else { riga.appendChild(adesso); riga.appendChild(rimetti); }
@@ -3288,7 +3322,6 @@
       corpo.appendChild(via);
     });
   }
-
   // un'icona nuova è quella dove non c'è mai stato niente: ricominciando da zero (il 1° dicembre) è solo vuota (24/11/2026)
   const qualcosaDentro = () => !!(stato.movimenti.length || stato.ricorrenti.length || CONTI_ID.some(c => stato.saldi[c]));
   const iconaNuova = () => !pref.avviata && !qualcosaDentro();
@@ -3299,7 +3332,7 @@
     $('bannerTrasloco').hidden = !iconaNuova();
     const n = stato.movimenti.length;
     const vecchio = !ghFresca() && (!stato.ultimoBackup || (Date.now() - new Date(stato.ultimoBackup)) > 14 * GIORNO_MS);
-    const ghRotta = !!(gh.token && (gh.sospesa || (gh.errore && gh.errore !== 'rete') || (gh.errore === 'rete' && gh.ultima && Date.now() - gh.ultima > 3 * GIORNO_MS)));
+    const ghRotta = !!(gh.token && (gh.sospesa || (gh.errore && gh.errore !== 'rete') || (gh.errore === 'rete' && (!gh.ultima || Date.now() - gh.ultima > 3 * GIORNO_MS))));
     // la memoria quasi piena viene prima di tutto: va detto a Claude, che sposta i movimenti in una memoria più grande
     const pieno = spazioUsato() >= 0.6;
     const mostra = pieno || ghRotta || (n >= 10 && vecchio);

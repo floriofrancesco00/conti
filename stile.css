@@ -196,6 +196,8 @@ main { padding: 0 max(16px, env(safe-area-inset-right)) 0 max(16px, env(safe-are
   min-height: 40px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--bordo);
   background: var(--superficie-2); font-size: 15px; font-weight: 600;
 }
+/* un link che sembra un tasto (27/11/2026: «Crea la chiave su GitHub») */
+.tasto-link { display: flex; align-items: center; justify-content: center; min-height: 48px; color: var(--testo); text-decoration: none; margin-top: 4px; }
 .tasto-pericolo {
   min-height: 48px; padding: 0 16px; border-radius: 14px; border: 1px solid var(--critico);
   background: transparent; color: var(--critico); font-size: 16px; font-weight: 600;
